@@ -144,7 +144,7 @@ public enum QuiiG711ALaw {
     }
 }
 
-/// Accumulates two fixed-size capture callbacks's two-callback accumulator: each callback is
+/// Accumulates two fixed-size capture callbacks. Each callback is
 /// 480 bytes of PCM16LE (240 samples / 30 ms). A 480-byte PCMA payload is
 /// emitted only after two complete callbacks (60 ms).
 public struct QuiiTalkAudioAccumulator: Sendable {

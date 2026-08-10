@@ -19,10 +19,8 @@ OpenQUII provides:
 Add this repository as a Swift Package dependency and import `OpenQUII`.
 
 ```swift
-.package(url: "https://github.com/nachoandmikey/open-quii.git", branch: "main")
+.package(url: "https://github.com/nachoandmikey/open-quii.git", from: "0.1.0")
 ```
-
-No release tag exists yet; switch to a version requirement after the first release.
 
 ## API example
 
