@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "method": "POST",
+  "path": "/tdkcgi",
+  "content_type": "application/xml; charset=utf-8",
+  "username": "adminapp2",
+  "verification_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "status": {
+    "command": "get.device.status",
+    "expected_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><envelope><header><security>username</security><username>adminapp2</username><password>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</password><passwordencode>1</passwordencode></header><body><command>get.device.status</command><content></content></body></envelope>"
+  },
+  "controls": [
+    {
+      "id": "door_1_lock_1_digest",
+      "door": 1,
+      "lock": 1,
+      "unlock_credential": {
+        "kind": "sha256_digest",
+        "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "expected_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><envelope><header><security>username</security><username>adminapp2</username><password>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</password><passwordencode>1</passwordencode></header><body><command>set.device.opendoor</command><content><door>1</door><locknumber>1</locknumber><password>bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb</password></content></body></envelope>"
+    },
+    {
+      "id": "door_2_lock_1_plaintext",
+      "door": 2,
+      "lock": 1,
+      "unlock_credential": {
+        "kind": "plaintext",
+        "value": "fake-unlock-password"
+      },
+      "expected_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><envelope><header><security>username</security><username>adminapp2</username><password>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</password><passwordencode>1</passwordencode></header><body><command>set.device.opendoor</command><content><door>2</door><locknumber>1</locknumber><password>a3fdbab83ca39726ee2d4997a868eb50b2fbc1f6262926c88bd6efd70134c886</password></content></body></envelope>"
+    }
+  ]
+}

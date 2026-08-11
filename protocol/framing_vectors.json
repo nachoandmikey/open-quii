@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "provenance": "synthetic-generated",
+  "vectors": [
+    {
+      "id": "fixed_width_setup_request",
+      "encoding": "hex",
+      "payload": "a900000000000000000000000000000000000000000000000000000000000000",
+      "expected_length": 32
+    },
+    {
+      "id": "xml_success_response",
+      "encoding": "utf-8",
+      "payload": "<?xml version=\"1.0\"?><envelope><body><result>0</result></body></envelope>",
+      "expected_protocol_code": "0"
+    },
+    {
+      "id": "xml_rejection_response",
+      "encoding": "utf-8",
+      "payload": "<?xml version=\"1.0\"?><envelope><body><error>7</error></body></envelope>",
+      "expected_protocol_code": "7"
+    }
+  ]
+}

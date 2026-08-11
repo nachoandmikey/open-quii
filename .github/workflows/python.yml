@@ -1,0 +1,41 @@
+name: Python and Home Assistant
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - name: Install development dependencies
+        run: uv sync --extra dev
+      - name: Python tests
+        run: uv run pytest -q
+      - name: Lint
+        run: uv run ruff check .
+      - name: Type-check canonical core
+        run: uv run mypy
+      - name: Build package
+        run: uv build
+      - name: External package import smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(find dist -name '*.whl' -print -quit)"
+          test -n "$wheel"
+          temp="$(mktemp -d)"
+          uv venv "$temp/venv"
+          uv pip install --python "$temp/venv/bin/python" "$wheel"
+          cd "$temp"
+          "$temp/venv/bin/python" -c 'import openquii; assert openquii.__version__ == "0.2.0"'

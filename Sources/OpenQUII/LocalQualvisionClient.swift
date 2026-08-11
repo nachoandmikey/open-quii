@@ -113,7 +113,7 @@ public struct LocalQualvisionClient: Sendable {
         door: Int,
         lockNumber: Int = 1
     ) throws -> URLRequest {
-        guard door > 0, lockNumber > 0 else { throw ClientError.invalidAddress }
+        guard (door == 1 || door == 2), lockNumber == 1 else { throw ClientError.invalidAddress }
         let credential = verificationCode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard credential.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
             throw ClientError.missingVerificationCode

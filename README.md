@@ -1,86 +1,174 @@
 # OpenQUII
 
-Open-source Swift building blocks for compatible QUII-based IP intercoms.
+Open-source, cross-platform building blocks for compatible QUII-based IP intercoms.
 
-OpenQUII provides:
+OpenQUII is one public source of truth with multiple runtime implementations:
 
-- validated local monitor addressing;
-- authenticated local control request construction;
-- encrypted QUII video and audio record parsing;
-- native receive-only video/audio transport;
-- explicit, user-initiated two-way talk transport.
+- `protocol/`: language-neutral safety contract and synthetic golden fixtures;
+- `Sources/OpenQUII/`: Swift runtime consumed by native apps such as Portero;
+- `custom_components/openquii/core/`: canonical Python local-control runtime;
+- `custom_components/openquii/`: thin Home Assistant custom integration using that same Python source.
+
+The Python distribution maps the import name `openquii` directly to
+`custom_components/openquii/core/`. There is no second or generated copy of the
+Python protocol implementation.
 
 ## Status
 
-**Experimental core available.** The reusable Swift package and synthetic protocol tests are now present. Compatibility varies by intercom model and firmware. Door control is consequential: applications must require an explicit user action, send at most one request per action, and never automatically retry an ambiguous result.
+**Experimental interoperability project.** Compatibility varies by intercom model
+and firmware. Door control is consequential: applications must require an explicit
+user action, send at most one request per action, reject redirects, and never retry
+an ambiguous result automatically.
 
-## Installation
+Current feature coverage:
 
-Add this repository as a Swift Package dependency and import `OpenQUII`.
+- Swift: local status/control, encrypted video/audio receive parsing and transport,
+  plus explicit user-initiated talk transport;
+- Python: local authenticated status and one-shot Door 1/Door 2 control;
+- Home Assistant: read-only reachability and authenticated-user-only Door 1/Door 2
+  buttons.
+
+Python/Home Assistant media, talk, cloud ring delivery, and call presentation are
+**not implemented**. The integration does not claim parity with the Swift media
+runtime yet.
+
+## Shared protocol contract
+
+[`protocol/README.md`](protocol/README.md) defines the current cross-language local
+control contract. Swift and Python tests both consume its canonical fixtures:
+
+- strict private/link-local/loopback literal IPv4 addressing;
+- separate username, verification digest, and unlock credential fields;
+- Door 1 → door `1`, lock `1`;
+- Door 2 → door `2`, lock `1`;
+- one request per accepted action, redirects rejected, no automatic retry;
+- synthetic response and framing vectors.
+
+The fixtures are generated examples, not packet captures or private installation
+data.
+
+## Swift package
+
+After the `0.2.0` release, add this repository as a Swift Package dependency:
 
 ```swift
-.package(url: "https://github.com/nachoandmikey/open-quii.git", from: "0.1.0")
+.package(url: "https://github.com/nachoandmikey/open-quii.git", from: "0.2.0")
 ```
 
-## API example
-
-Credentials must be supplied explicitly by the integrating application. This example uses synthetic values only:
+The existing stable `0.1.0` tag remains available for consumers pinned to that
+release.
 
 ```swift
-import Foundation
 import OpenQUII
 
-let host = "192.168.50.10"
+let monitor = "192.168.50.10" // synthetic example
 let digest = String(repeating: "a", count: 64)
-let key = Data(repeating: 0x11, count: 32)
 
-let videoCredentials = try QuiiNativeVideoCredentials(
-    host: host,
-    passwordDigest: digest,
-    dataEncodeKey: key
-)
-
-// One explicit user action maps to one request. Do not retry an ambiguous result.
 let control = LocalQualvisionClient()
 try await control.openDoor(
-    monitorAddress: host,
+    monitorAddress: monitor,
     verificationCode: digest,
-    unlockPassword: "user-supplied-unlock-secret",
+    unlockPassword: "user-supplied-secret",
     door: 1
-)
-
-// Construction does not connect or acknowledge a call.
-let talkCredentials = try QuiiTalkCredentials(
-    video: videoCredentials,
-    compactOEMID: "SYNTHETICOEM",
-    clientID: "synthetic-client"
-)
-let talk = try QuiiNativeTalkTransport(credentials: talkCredentials)
-
-// Call connect only after the user explicitly chooses to answer/talk.
-try await talk.connect(
-    onState: { status in print(status) },
-    onAudio: { frame in /* enqueue PCM audio */ },
-    onFailure: { error in /* present the failure */ }
 )
 ```
 
-Do not print real credentials or retain them beyond your application’s required credential lifecycle.
+Construction of media/talk types does not connect, answer, activate a microphone,
+or open a door. The caller must initiate those operations explicitly.
+
+## Python core
+
+The `openquii` package is designed for Python 3.12+ and uses an injected aiohttp-like
+session. The caller owns the session and all networking lifecycle.
+
+Before the PyPI release, install a development checkout with:
+
+```bash
+uv pip install -e /path/to/open-quii
+```
+
+```python
+from openquii import (
+    ControlCredentials,
+    ControlUsername,
+    Door,
+    OpenQUIIClient,
+    UnlockPassword,
+    VerificationDigest,
+)
+
+credentials = ControlCredentials(
+    ControlUsername("user-supplied-name"),
+    VerificationDigest("a" * 64),
+)
+client = OpenQUIIClient(aiohttp_session, "192.168.50.10", credentials)
+
+# Invoke only from an explicit user action. Exactly one POST is attempted.
+await client.open_door(Door.ONE, UnlockPassword("user-supplied-secret"))
+```
+
+The core never creates/closes the injected session, follows redirects, retries,
+persists credentials, or logs request bodies.
+
+## Home Assistant
+
+The repository contains a HACS-compatible custom integration under
+`custom_components/openquii`.
+
+Development installation:
+
+1. Copy `custom_components/openquii` into the Home Assistant configuration
+   directory's `custom_components/` folder.
+2. Restart Home Assistant.
+3. Add **OpenQUII** from **Settings → Devices & services**.
+4. Enter a literal local monitor IPv4 origin and the installation credentials.
+
+Setup validates values offline and never actuates a door. The coordinator polls only
+`get.device.status`. Door buttons require a service context carrying an authenticated
+Home Assistant `user_id`; automation/background contexts are rejected. Each accepted
+press makes exactly one control request. Startup, setup, polling, diagnostics, and
+notifications cannot unlock.
+
+Credentials are stored only in Home Assistant config-entry data, its designated
+secret-bearing configuration store. Diagnostics redact address, username,
+verification digest, and unlock password.
+
+A formal HACS default-repository listing and a Home Assistant Core submission are
+separate future review processes; this integration can be installed as a HACS custom
+repository once `0.2.0` is released.
+
+## Development and verification
+
+```bash
+swift test
+uv sync --extra dev
+uv run pytest
+uv run ruff check .
+uv run mypy
+uv build
+```
+
+CI also installs the built wheel into a clean environment and imports `openquii`
+from outside the repository.
 
 ## Safety and privacy
 
-OpenQUII does not contain credentials, vendor binaries, packet captures, installation identifiers, cloud deployment code, or device-specific configuration. Credentials are accepted explicitly at runtime and are never derived, persisted, or logged by the package.
+OpenQUII contains no credentials, vendor binaries/source, packet captures, private
+installation identifiers, cloud deployment resources, APNs/CallKit configuration,
+or device-specific defaults. Credentials are supplied explicitly at runtime.
 
-The library does not automatically answer calls, acknowledge talk receipt, activate microphones, open doors, retry door actions, or start passive media monitoring. Those decisions belong to the integrating application and its user interface.
+The project does not automatically answer calls, activate microphones, open doors,
+retry door actions, or start passive media monitoring. Ring receipt, answering,
+media, talk, and unlock remain separate capabilities.
 
-Local control accepts only private, link-local, or loopback IPv4 endpoints and rejects redirects. Native media credentials additionally support explicitly provided tailnet DNS relay hosts.
-
-## Compatibility
-
-The package targets iOS 17+ and macOS 14+ using Foundation, Network.framework, CryptoKit, and CommonCrypto. Run the package tests with `swift test` on macOS.
+Local control accepts only canonical private, link-local, or loopback literal IPv4
+origins and rejects redirects. Native Swift media credentials additionally support
+explicitly supplied tailnet relay hosts.
 
 ## Legal
 
-OpenQUII is an independent interoperability project. It is not affiliated with or endorsed by Golmar, Qualvision, or their partners. Product names may be trademarks of their respective owners.
+OpenQUII is an independent interoperability project. It is not affiliated with or
+endorsed by Golmar, Qualvision, or their partners. Product names may be trademarks
+of their respective owners.
 
 Licensed under the MIT License.

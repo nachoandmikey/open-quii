@@ -4,6 +4,52 @@ import XCTest
 @testable import OpenQUII
 
 final class LocalQualvisionClientTests: XCTestCase {
+    func testSharedAddressContract() throws {
+        let fixtures: AddressFixtures = try FixtureLoader.load("addresses.json")
+        for fixture in fixtures.cases {
+            if let canonical = fixture.canonical {
+                XCTAssertEqual(
+                    try LocalQualvisionClient.canonicalMonitorAddress(fixture.input),
+                    canonical,
+                    fixture.id
+                )
+            } else {
+                XCTAssertThrowsError(
+                    try LocalQualvisionClient.canonicalMonitorAddress(fixture.input),
+                    fixture.id
+                )
+            }
+        }
+    }
+
+    func testSharedControlRequestContract() throws {
+        let fixtures: ControlFixtures = try FixtureLoader.load("control_requests.json")
+        let status = try LocalQualvisionClient.makeReadOnlyRequest(
+            monitorAddress: "192.168.50.10",
+            verificationCode: fixtures.verificationDigest,
+            command: fixtures.status.command
+        )
+        XCTAssertEqual(status.httpMethod, fixtures.method)
+        XCTAssertEqual(status.url?.path, fixtures.path)
+        XCTAssertEqual(status.value(forHTTPHeaderField: "Content-Type"), fixtures.contentType)
+        XCTAssertEqual(String(decoding: try XCTUnwrap(status.httpBody), as: UTF8.self), fixtures.status.expectedXml)
+
+        for fixture in fixtures.controls {
+            let request = try LocalQualvisionClient.makeOpenDoorRequest(
+                monitorAddress: "192.168.50.10",
+                verificationCode: fixtures.verificationDigest,
+                unlockPassword: fixture.unlockCredential.value,
+                door: fixture.door,
+                lockNumber: fixture.lock
+            )
+            XCTAssertEqual(
+                String(decoding: try XCTUnwrap(request.httpBody), as: UTF8.self),
+                fixture.expectedXml,
+                fixture.id
+            )
+        }
+    }
+
     func testDoor1Lock1RequestHasExpectedLocalShape() throws {
         let headerDigest = String(repeating: "a", count: 64)
         let unlockDigest = String(repeating: "b", count: 64)
@@ -168,6 +214,72 @@ final class LocalQualvisionClientTests: XCTestCase {
                 lockNumber: 0
             )
         )
+        XCTAssertThrowsError(
+            try LocalQualvisionClient.makeOpenDoorRequest(
+                monitorAddress: "192.168.50.10",
+                verificationCode: digest,
+                unlockPassword: "separate-unlock-password",
+                door: 3
+            )
+        )
+        XCTAssertThrowsError(
+            try LocalQualvisionClient.makeOpenDoorRequest(
+                monitorAddress: "192.168.50.10",
+                verificationCode: digest,
+                unlockPassword: "separate-unlock-password",
+                door: 1,
+                lockNumber: 2
+            )
+        )
+    }
+}
+
+private struct AddressFixtures: Decodable {
+    let cases: [AddressFixture]
+}
+
+private struct AddressFixture: Decodable {
+    let id: String
+    let input: String
+    let canonical: String?
+}
+
+private struct ControlFixtures: Decodable {
+    let method: String
+    let path: String
+    let contentType: String
+    let verificationDigest: String
+    let status: StatusFixture
+    let controls: [ControlFixture]
+}
+
+private struct StatusFixture: Decodable {
+    let command: String
+    let expectedXml: String
+}
+
+private struct ControlFixture: Decodable {
+    let id: String
+    let door: Int
+    let lock: Int
+    let unlockCredential: UnlockCredentialFixture
+    let expectedXml: String
+}
+
+private struct UnlockCredentialFixture: Decodable {
+    let value: String
+}
+
+private enum FixtureLoader {
+    static func load<Value: Decodable>(_ name: String) throws -> Value {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(contentsOf: repositoryRoot.appendingPathComponent("protocol/\(name)"))
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(Value.self, from: data)
     }
 }
 

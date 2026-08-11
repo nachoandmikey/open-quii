@@ -1,0 +1,86 @@
+"""Static and pure-policy checks for the HACS integration boundary."""
+
+from __future__ import annotations
+
+import ast
+import importlib.util
+import json
+import tomllib
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[1]
+_INTEGRATION = _ROOT / "custom_components" / "openquii"
+
+
+def test_manifest_and_packaging_share_one_canonical_core() -> None:
+    manifest = json.loads((_INTEGRATION / "manifest.json").read_text())
+    pyproject = tomllib.loads((_ROOT / "pyproject.toml").read_text())
+
+    assert manifest["domain"] == "openquii"
+    assert manifest["config_flow"] is True
+    assert manifest["iot_class"] == "local_polling"
+    assert manifest["requirements"] == []
+    assert manifest["version"] == "0.2.0"
+    assert pyproject["tool"]["setuptools"]["package-dir"]["openquii"] == (
+        "custom_components/openquii/core"
+    )
+
+
+def test_base_strings_and_english_translation_match() -> None:
+    strings = json.loads((_INTEGRATION / "strings.json").read_text())
+    translation = json.loads((_INTEGRATION / "translations" / "en.json").read_text())
+    assert strings == translation
+
+
+def test_only_button_module_can_reference_open_door() -> None:
+    references: dict[str, int] = {}
+    for path in _INTEGRATION.glob("*.py"):
+        count = path.read_text().count("open_door")
+        if count:
+            references[path.name] = count
+    assert references == {"button.py": 1}
+
+
+def test_button_checks_user_context_before_exactly_one_open_call() -> None:
+    source = (_INTEGRATION / "button.py").read_text()
+    tree = ast.parse(source)
+    method = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "async_press"
+    )
+    checks = [
+        node
+        for node in ast.walk(method)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "is_authenticated_user_action"
+    ]
+    open_calls = [
+        node
+        for node in ast.walk(method)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "open_door"
+    ]
+    assert len(checks) == 1
+    assert len(open_calls) == 1
+    assert checks[0].lineno < open_calls[0].lineno
+
+
+def test_pure_user_action_policy_rejects_automation_context() -> None:
+    path = _INTEGRATION / "control_policy.py"
+    spec = importlib.util.spec_from_file_location("openquii_control_policy", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.is_authenticated_user_action("authenticated-user") is True
+    assert module.is_authenticated_user_action(None) is False
+    assert module.is_authenticated_user_action("") is False
+    assert module.is_authenticated_user_action("   ") is False
+
+
+def test_setup_polling_and_config_flow_never_reference_actuation() -> None:
+    for name in ("__init__.py", "config_flow.py", "coordinator.py", "diagnostics.py"):
+        assert "open_door" not in (_INTEGRATION / name).read_text()
