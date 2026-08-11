@@ -35,14 +35,17 @@ runtime yet.
 ## Shared protocol contract
 
 [`protocol/README.md`](protocol/README.md) defines the current cross-language local
-control contract. Swift and Python tests both consume its canonical fixtures:
+control contract. Swift and Python tests both consume the normative address and
+control-request fixtures for:
 
 - strict private/link-local/loopback literal IPv4 addressing;
 - separate username, verification digest, and unlock credential fields;
-- Door 1 → door `1`, lock `1`;
-- Door 2 → door `2`, lock `1`;
-- one request per accepted action, redirects rejected, no automatic retry;
-- synthetic response and framing vectors.
+- authenticated read/status requests;
+- Door 1 and Door 2 controls, both using Lock 1;
+- one request per accepted action, redirects rejected, no automatic retry.
+
+The synthetic framing vectors remain language-neutral reference data for the
+Swift-only media/talk surface; Python media parity is intentionally out of scope.
 
 The fixtures are generated examples, not packet captures or private installation
 data.
@@ -68,10 +71,15 @@ let control = LocalQualvisionClient()
 try await control.openDoor(
     monitorAddress: monitor,
     verificationCode: digest,
-    unlockPassword: "user-supplied-secret",
+    unlockCredential: .plaintext("user-supplied-secret"),
     door: 1
 )
 ```
+
+Use `.sha256Digest(...)` only when the caller already holds a validated
+64-character digest. The source-compatible `unlockPassword:` overload handles
+ordinary plaintext, but rejects an ambiguous 64-hex string instead of guessing;
+use an explicit credential case for that input shape.
 
 Construction of media/talk types does not connect, answer, activate a microphone,
 or open a door. The caller must initiate those operations explicitly.

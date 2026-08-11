@@ -56,6 +56,13 @@ def test_button_checks_user_context_before_exactly_one_open_call() -> None:
         and isinstance(node.func, ast.Name)
         and node.func.id == "is_authenticated_user_action"
     ]
+    auth_lookups = [
+        node
+        for node in ast.walk(method)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "async_get_user"
+    ]
     open_calls = [
         node
         for node in ast.walk(method)
@@ -64,8 +71,9 @@ def test_button_checks_user_context_before_exactly_one_open_call() -> None:
         and node.func.attr == "open_door"
     ]
     assert len(checks) == 1
+    assert len(auth_lookups) == 1
     assert len(open_calls) == 1
-    assert checks[0].lineno < open_calls[0].lineno
+    assert checks[0].lineno < auth_lookups[0].lineno < open_calls[0].lineno
 
 
 def test_pure_user_action_policy_rejects_automation_context() -> None:

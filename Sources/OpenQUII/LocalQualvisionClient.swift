@@ -35,6 +35,29 @@ public struct LocalQualvisionClient: Sendable {
         }
     }
 
+    /// Explicitly distinguishes plaintext unlock material from a precomputed digest.
+    public enum UnlockCredential: Sendable, Equatable {
+        case plaintext(String)
+        case sha256Digest(String)
+
+        fileprivate func encodedValue() throws -> String {
+            switch self {
+            case .plaintext(let value):
+                let password = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !password.isEmpty else { throw ClientError.missingVerificationCode }
+                return SHA256.hash(data: Data(password.utf8))
+                    .map { String(format: "%02x", $0) }
+                    .joined()
+            case .sha256Digest(let value):
+                let digest = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                guard digest.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
+                    throw ClientError.missingVerificationCode
+                }
+                return digest
+            }
+        }
+    }
+
     private let session: URLSession
 
     public init(session: URLSession? = nil) {
@@ -50,7 +73,7 @@ public struct LocalQualvisionClient: Sendable {
         }
     }
 
-    /// Sends exactly one request. Callers must never automatically retry this operation.
+    /// Sends exactly one request. String unlock passwords are always treated as plaintext.
     public func openDoor(
         monitorAddress: String,
         verificationCode: String,
@@ -58,10 +81,30 @@ public struct LocalQualvisionClient: Sendable {
         door: Int,
         lockNumber: Int = 1
     ) async throws {
+        guard !Self.isAmbiguousLegacyUnlockPassword(unlockPassword) else {
+            throw ClientError.missingVerificationCode
+        }
+        try await openDoor(
+            monitorAddress: monitorAddress,
+            verificationCode: verificationCode,
+            unlockCredential: .plaintext(unlockPassword),
+            door: door,
+            lockNumber: lockNumber
+        )
+    }
+
+    /// Sends exactly one request using an explicitly typed unlock credential.
+    public func openDoor(
+        monitorAddress: String,
+        verificationCode: String,
+        unlockCredential: UnlockCredential,
+        door: Int,
+        lockNumber: Int = 1
+    ) async throws {
         let request = try Self.makeOpenDoorRequest(
             monitorAddress: monitorAddress,
             verificationCode: verificationCode,
-            unlockPassword: unlockPassword,
+            unlockCredential: unlockCredential,
             door: door,
             lockNumber: lockNumber
         )
@@ -73,13 +116,10 @@ public struct LocalQualvisionClient: Sendable {
             for: request,
             delegate: DoorControlRedirectRejector.shared
         )
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw ClientError.invalidResponse
         }
-        let xml = String(decoding: data, as: UTF8.self)
-        let result = Self.firstXMLValue(named: "error", in: xml)
-            ?? Self.firstXMLValue(named: "result", in: xml)
-        guard let result else { throw ClientError.invalidResponse }
+        let result = try Self.protocolCode(from: data)
         guard result == "0" else { throw ClientError.rejected(result) }
     }
 
@@ -106,10 +146,31 @@ public struct LocalQualvisionClient: Sendable {
         )
     }
 
+    /// Builds a request from a plaintext unlock password.
     public static func makeOpenDoorRequest(
         monitorAddress: String,
         verificationCode: String,
         unlockPassword: String,
+        door: Int,
+        lockNumber: Int = 1
+    ) throws -> URLRequest {
+        guard !isAmbiguousLegacyUnlockPassword(unlockPassword) else {
+            throw ClientError.missingVerificationCode
+        }
+        return try makeOpenDoorRequest(
+            monitorAddress: monitorAddress,
+            verificationCode: verificationCode,
+            unlockCredential: .plaintext(unlockPassword),
+            door: door,
+            lockNumber: lockNumber
+        )
+    }
+
+    /// Builds a request from an explicitly typed unlock credential.
+    public static func makeOpenDoorRequest(
+        monitorAddress: String,
+        verificationCode: String,
+        unlockCredential: UnlockCredential,
         door: Int,
         lockNumber: Int = 1
     ) throws -> URLRequest {
@@ -118,7 +179,7 @@ public struct LocalQualvisionClient: Sendable {
         guard credential.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
             throw ClientError.missingVerificationCode
         }
-        let encodedUnlockPassword = try encodeUnlockPassword(unlockPassword)
+        let encodedUnlockPassword = try unlockCredential.encodedValue()
 
         // Header authentication and lock authorization are deliberately separate.
         // Ability 24 requires the content password to be SHA-256 encoded, while
@@ -131,15 +192,9 @@ public struct LocalQualvisionClient: Sendable {
         )
     }
 
-    private static func encodeUnlockPassword(_ value: String) throws -> String {
-        let password = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !password.isEmpty else { throw ClientError.missingVerificationCode }
-        if password.count == 64, password.allSatisfy(\.isHexDigit) {
-            return password.lowercased()
-        }
-        return SHA256.hash(data: Data(password.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
+    private static func isAmbiguousLegacyUnlockPassword(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count == 64 && trimmed.allSatisfy(\.isHexDigit)
     }
 
     private static func makeRequest(
@@ -171,15 +226,64 @@ public struct LocalQualvisionClient: Sendable {
         return request
     }
 
-    private static func firstXMLValue(named name: String, in xml: String) -> String? {
-        let escapedName = NSRegularExpression.escapedPattern(for: name)
-        guard let expression = try? NSRegularExpression(
-            pattern: "<\\s*\(escapedName)(?:\\s[^>]*)?>(.*?)<\\s*/\\s*\(escapedName)\\s*>",
-            options: [.caseInsensitive, .dotMatchesLineSeparators]
-        ) else { return nil }
-        let range = NSRange(xml.startIndex..., in: xml)
-        guard let match = expression.firstMatch(in: xml, range: range),
-              let valueRange = Range(match.range(at: 1), in: xml) else { return nil }
-        return String(xml[valueRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+    static func protocolCode(from data: Data) throws -> String {
+        let delegate = ProtocolResponseParserDelegate()
+        let parser = XMLParser(data: data)
+        parser.delegate = delegate
+        parser.shouldProcessNamespaces = true
+        parser.shouldResolveExternalEntities = false
+        guard parser.parse(), parser.parserError == nil,
+              !delegate.invalidTargetStructure,
+              let code = delegate.errorCode ?? delegate.resultCode else {
+            throw ClientError.invalidResponse
+        }
+        return code
+    }
+}
+
+private final class ProtocolResponseParserDelegate: NSObject, XMLParserDelegate {
+    private var activeElement: String?
+    private var text = ""
+    fileprivate private(set) var errorCode: String?
+    fileprivate private(set) var resultCode: String?
+    fileprivate private(set) var invalidTargetStructure = false
+
+    func parser(
+        _ parser: XMLParser,
+        didStartElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?,
+        attributes attributeDict: [String: String] = [:]
+    ) {
+        if activeElement != nil {
+            invalidTargetStructure = true
+            return
+        }
+        let localName = elementName.lowercased()
+        guard localName == "error" || localName == "result" else { return }
+        activeElement = localName
+        text = ""
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        guard activeElement != nil else { return }
+        text += string
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didEndElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        let localName = elementName.lowercased()
+        guard activeElement == localName else { return }
+        let code = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !code.isEmpty {
+            if localName == "error", errorCode == nil { errorCode = code }
+            if localName == "result", resultCode == nil { resultCode = code }
+        }
+        activeElement = nil
+        text = ""
     }
 }

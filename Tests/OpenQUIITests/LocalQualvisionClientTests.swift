@@ -35,10 +35,20 @@ final class LocalQualvisionClientTests: XCTestCase {
         XCTAssertEqual(String(decoding: try XCTUnwrap(status.httpBody), as: UTF8.self), fixtures.status.expectedXml)
 
         for fixture in fixtures.controls {
+            let unlockCredential: LocalQualvisionClient.UnlockCredential
+            switch fixture.unlockCredential.kind {
+            case "plaintext":
+                unlockCredential = .plaintext(fixture.unlockCredential.value)
+            case "sha256_digest":
+                unlockCredential = .sha256Digest(fixture.unlockCredential.value)
+            default:
+                XCTFail("Unknown unlock credential kind: \(fixture.unlockCredential.kind)")
+                continue
+            }
             let request = try LocalQualvisionClient.makeOpenDoorRequest(
                 monitorAddress: "192.168.50.10",
                 verificationCode: fixtures.verificationDigest,
-                unlockPassword: fixture.unlockCredential.value,
+                unlockCredential: unlockCredential,
                 door: fixture.door,
                 lockNumber: fixture.lock
             )
@@ -56,7 +66,7 @@ final class LocalQualvisionClientTests: XCTestCase {
         let request = try LocalQualvisionClient.makeOpenDoorRequest(
             monitorAddress: "192.168.50.10",
             verificationCode: headerDigest,
-            unlockPassword: unlockDigest,
+            unlockCredential: .sha256Digest(unlockDigest),
             door: 1,
             lockNumber: 1
         )
@@ -107,7 +117,7 @@ final class LocalQualvisionClientTests: XCTestCase {
         let request = try LocalQualvisionClient.makeOpenDoorRequest(
             monitorAddress: "192.168.50.10",
             verificationCode: String(repeating: "b", count: 64),
-            unlockPassword: String(repeating: "c", count: 64),
+            unlockCredential: .sha256Digest(String(repeating: "c", count: 64)),
             door: 2,
             lockNumber: 1
         )
@@ -132,6 +142,39 @@ final class LocalQualvisionClientTests: XCTestCase {
         XCTAssertEqual(body.components(separatedBy: "<password>\(headerDigest)</password>").count - 1, 1)
         XCTAssertTrue(body.contains("<password>bc77eabb798bc88759b8a9be7f386076b53d177872e1a1997b9459dc288da9bf</password>"))
         XCTAssertFalse(body.contains("<password>separate-unlock-password</password>"))
+    }
+
+    func testHexShapedPlaintextRequiresExplicitCredentialKind() throws {
+        let explicitRequest = try LocalQualvisionClient.makeOpenDoorRequest(
+            monitorAddress: "192.168.50.10",
+            verificationCode: String(repeating: "a", count: 64),
+            unlockCredential: .plaintext(String(repeating: "b", count: 64)),
+            door: 1
+        )
+        let body = String(decoding: try XCTUnwrap(explicitRequest.httpBody), as: UTF8.self)
+        XCTAssertTrue(body.contains("<password>a0fab1377f49a759b57f63318262ebe89fabfc990e8e93ceac2984561482b9d4</password>"))
+
+        XCTAssertThrowsError(
+            try LocalQualvisionClient.makeOpenDoorRequest(
+                monitorAddress: "192.168.50.10",
+                verificationCode: String(repeating: "a", count: 64),
+                unlockPassword: String(repeating: "b", count: 64),
+                door: 1
+            )
+        )
+    }
+
+    func testProtocolResponseMustBeWellFormedXML() throws {
+        let malformed = Data("<envelope><body><result>0</result></body>".utf8)
+        XCTAssertThrowsError(try LocalQualvisionClient.protocolCode(from: malformed))
+
+        let nestedCode = Data("<envelope><body><result><code>0</code></result></body></envelope>".utf8)
+        XCTAssertThrowsError(try LocalQualvisionClient.protocolCode(from: nestedCode))
+    }
+
+    func testProtocolResponseParsesNamespacedErrorBeforeResult() throws {
+        let response = Data("<e:envelope xmlns:e=\"urn:fake\"><e:result>0</e:result><e:error>7</e:error></e:envelope>".utf8)
+        XCTAssertEqual(try LocalQualvisionClient.protocolCode(from: response), "7")
     }
 
     func testReadOnlyControlPathProbeCannotUnlock() throws {
@@ -182,7 +225,7 @@ final class LocalQualvisionClientTests: XCTestCase {
             try await client.openDoor(
                 monitorAddress: "127.0.0.1:\(port)",
                 verificationCode: String(repeating: "a", count: 64),
-                unlockPassword: String(repeating: "b", count: 64),
+                unlockCredential: .sha256Digest(String(repeating: "b", count: 64)),
                 door: 1,
                 lockNumber: 1
             )
@@ -267,6 +310,7 @@ private struct ControlFixture: Decodable {
 }
 
 private struct UnlockCredentialFixture: Decodable {
+    let kind: String
     let value: String
 }
 

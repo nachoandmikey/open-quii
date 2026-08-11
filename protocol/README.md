@@ -67,8 +67,9 @@ protocol value is a rejection. An absent value or malformed XML is invalid. An
 ambiguous transport result remains ambiguous and must never be retried
 automatically.
 
-`control_requests.json` contains normative XML construction vectors.
-`framing_vectors.json` contains sanitized, generated response/framing vectors.
+`control_requests.json` contains normative cross-runtime XML construction vectors.
+`framing_vectors.json` contains sanitized, generated reference vectors for the
+Swift-only media/talk surface; it is not currently an executable Python fixture.
 
 ## Scope and safety
 

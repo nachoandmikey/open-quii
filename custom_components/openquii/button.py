@@ -60,6 +60,11 @@ class OpenQUIIDoorButton(OpenQUIIEntity, ButtonEntity):
             raise HomeAssistantError(
                 "Door control requires an authenticated Home Assistant user."
             )
+        user = await self.hass.auth.async_get_user(user_id)
+        if user is None:
+            raise HomeAssistantError(
+                "Door control requires an authenticated Home Assistant user."
+            )
 
         unlock_password = UnlockPassword(self._entry.data[CONF_UNLOCK_PASSWORD])
         try:

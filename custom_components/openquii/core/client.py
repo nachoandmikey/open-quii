@@ -135,8 +135,10 @@ class OpenQUIIClient:
                 allow_redirects=False,
                 timeout=self._timeout,
             )
-        except Exception as error:
-            raise TransportError from error
+        except Exception:
+            # Raw transport errors may include local addresses, device details,
+            # or credentials. Do not retain them as a public exception cause.
+            raise TransportError from None
         try:
             if 300 <= response.status < 400:
                 raise RedirectRejectedError
@@ -149,8 +151,9 @@ class OpenQUIIClient:
             return DeviceStatus(protocol_code=code)
         except OpenQUIIError:
             raise
-        except Exception as error:
-            raise TransportError from error
+        except Exception:
+            # Response-body failures cross the same sanitization boundary.
+            raise TransportError from None
         finally:
             response.release()
 
@@ -160,8 +163,8 @@ def _parse_protocol_code(body: str) -> str:
         raise InvalidResponseError
     try:
         root = ElementTree.fromstring(body)
-    except ElementTree.ParseError as error:
-        raise InvalidResponseError from error
+    except ElementTree.ParseError:
+        raise InvalidResponseError from None
 
     # An explicit error wins even when a malformed response also includes result.
     for expected_name in ("error", "result"):

@@ -69,6 +69,11 @@ class FakeSession:
         self.close_calls += 1
 
 
+class FailingResponse(FakeResponse):
+    async def text(self) -> NoReturn:
+        raise OSError("synthetic response-body private detail")
+
+
 class FailingSession(FakeSession):
     async def request(
         self,
@@ -137,6 +142,20 @@ def test_transport_failure_is_not_retried() -> None:
 
     assert len(session.calls) == 1
     assert "synthetic transport failure" not in str(caught.value)
+    assert caught.value.__cause__ is None
+
+
+def test_response_body_failure_is_sanitized_and_released() -> None:
+    response = FailingResponse(200, _SUCCESS)
+    session = FakeSession(response)
+
+    with pytest.raises(TransportError) as caught:
+        asyncio.run(_client(session).read_status())
+
+    assert "synthetic response-body private detail" not in str(caught.value)
+    assert caught.value.__cause__ is None
+    assert response.released
+    assert len(session.calls) == 1
 
 
 def test_namespaced_rejection_is_parsed_and_not_retried() -> None:
