@@ -1,0 +1,46 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "This monitor is already configured."
+    },
+    "error": {
+      "invalid_input": "Enter a canonical local IPv4 address and valid credentials."
+    },
+    "step": {
+      "user": {
+        "title": "Configure an OpenQUII monitor",
+        "description": "Configuration validates values offline and never opens a door. Each accepted Door 1 or Door 2 press sends one request with no automatic retry.",
+        "data": {
+          "address": "Monitor address",
+          "username": "Control username",
+          "verification_digest": "Verification digest",
+          "unlock_password": "Unlock password"
+        },
+        "data_description": {
+          "address": "Literal private, link-local, or loopback IPv4 HTTP origin.",
+          "username": "Username for the authenticated control header.",
+          "verification_digest": "64-character verification digest for header authentication.",
+          "unlock_password": "Password used only for an explicit door-control action."
+        }
+      }
+    }
+  },
+  "entity": {
+    "button": {
+      "door_1": {
+        "name": "Door 1"
+      },
+      "door_2": {
+        "name": "Door 2"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "reachable": "Reachable"
+        }
+      }
+    }
+  }
+}

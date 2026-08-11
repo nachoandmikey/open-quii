@@ -4,13 +4,69 @@ import XCTest
 @testable import OpenQUII
 
 final class LocalQualvisionClientTests: XCTestCase {
+    func testSharedAddressContract() throws {
+        let fixtures: AddressFixtures = try FixtureLoader.load("addresses.json")
+        for fixture in fixtures.cases {
+            if let canonical = fixture.canonical {
+                XCTAssertEqual(
+                    try LocalQualvisionClient.canonicalMonitorAddress(fixture.input),
+                    canonical,
+                    fixture.id
+                )
+            } else {
+                XCTAssertThrowsError(
+                    try LocalQualvisionClient.canonicalMonitorAddress(fixture.input),
+                    fixture.id
+                )
+            }
+        }
+    }
+
+    func testSharedControlRequestContract() throws {
+        let fixtures: ControlFixtures = try FixtureLoader.load("control_requests.json")
+        let status = try LocalQualvisionClient.makeReadOnlyRequest(
+            monitorAddress: "192.168.50.10",
+            verificationCode: fixtures.verificationDigest,
+            command: fixtures.status.command
+        )
+        XCTAssertEqual(status.httpMethod, fixtures.method)
+        XCTAssertEqual(status.url?.path, fixtures.path)
+        XCTAssertEqual(status.value(forHTTPHeaderField: "Content-Type"), fixtures.contentType)
+        XCTAssertEqual(String(decoding: try XCTUnwrap(status.httpBody), as: UTF8.self), fixtures.status.expectedXml)
+
+        for fixture in fixtures.controls {
+            let unlockCredential: LocalQualvisionClient.UnlockCredential
+            switch fixture.unlockCredential.kind {
+            case "plaintext":
+                unlockCredential = .plaintext(fixture.unlockCredential.value)
+            case "sha256_digest":
+                unlockCredential = .sha256Digest(fixture.unlockCredential.value)
+            default:
+                XCTFail("Unknown unlock credential kind: \(fixture.unlockCredential.kind)")
+                continue
+            }
+            let request = try LocalQualvisionClient.makeOpenDoorRequest(
+                monitorAddress: "192.168.50.10",
+                verificationCode: fixtures.verificationDigest,
+                unlockCredential: unlockCredential,
+                door: fixture.door,
+                lockNumber: fixture.lock
+            )
+            XCTAssertEqual(
+                String(decoding: try XCTUnwrap(request.httpBody), as: UTF8.self),
+                fixture.expectedXml,
+                fixture.id
+            )
+        }
+    }
+
     func testDoor1Lock1RequestHasExpectedLocalShape() throws {
         let headerDigest = String(repeating: "a", count: 64)
         let unlockDigest = String(repeating: "b", count: 64)
         let request = try LocalQualvisionClient.makeOpenDoorRequest(
             monitorAddress: "192.168.50.10",
             verificationCode: headerDigest,
-            unlockPassword: unlockDigest,
+            unlockCredential: .sha256Digest(unlockDigest),
             door: 1,
             lockNumber: 1
         )
@@ -61,7 +117,7 @@ final class LocalQualvisionClientTests: XCTestCase {
         let request = try LocalQualvisionClient.makeOpenDoorRequest(
             monitorAddress: "192.168.50.10",
             verificationCode: String(repeating: "b", count: 64),
-            unlockPassword: String(repeating: "c", count: 64),
+            unlockCredential: .sha256Digest(String(repeating: "c", count: 64)),
             door: 2,
             lockNumber: 1
         )
@@ -86,6 +142,39 @@ final class LocalQualvisionClientTests: XCTestCase {
         XCTAssertEqual(body.components(separatedBy: "<password>\(headerDigest)</password>").count - 1, 1)
         XCTAssertTrue(body.contains("<password>bc77eabb798bc88759b8a9be7f386076b53d177872e1a1997b9459dc288da9bf</password>"))
         XCTAssertFalse(body.contains("<password>separate-unlock-password</password>"))
+    }
+
+    func testHexShapedPlaintextRequiresExplicitCredentialKind() throws {
+        let explicitRequest = try LocalQualvisionClient.makeOpenDoorRequest(
+            monitorAddress: "192.168.50.10",
+            verificationCode: String(repeating: "a", count: 64),
+            unlockCredential: .plaintext(String(repeating: "b", count: 64)),
+            door: 1
+        )
+        let body = String(decoding: try XCTUnwrap(explicitRequest.httpBody), as: UTF8.self)
+        XCTAssertTrue(body.contains("<password>a0fab1377f49a759b57f63318262ebe89fabfc990e8e93ceac2984561482b9d4</password>"))
+
+        XCTAssertThrowsError(
+            try LocalQualvisionClient.makeOpenDoorRequest(
+                monitorAddress: "192.168.50.10",
+                verificationCode: String(repeating: "a", count: 64),
+                unlockPassword: String(repeating: "b", count: 64),
+                door: 1
+            )
+        )
+    }
+
+    func testProtocolResponseMustBeWellFormedXML() throws {
+        let malformed = Data("<envelope><body><result>0</result></body>".utf8)
+        XCTAssertThrowsError(try LocalQualvisionClient.protocolCode(from: malformed))
+
+        let nestedCode = Data("<envelope><body><result><code>0</code></result></body></envelope>".utf8)
+        XCTAssertThrowsError(try LocalQualvisionClient.protocolCode(from: nestedCode))
+    }
+
+    func testProtocolResponseParsesNamespacedErrorBeforeResult() throws {
+        let response = Data("<e:envelope xmlns:e=\"urn:fake\"><e:result>0</e:result><e:error>7</e:error></e:envelope>".utf8)
+        XCTAssertEqual(try LocalQualvisionClient.protocolCode(from: response), "7")
     }
 
     func testReadOnlyControlPathProbeCannotUnlock() throws {
@@ -136,7 +225,7 @@ final class LocalQualvisionClientTests: XCTestCase {
             try await client.openDoor(
                 monitorAddress: "127.0.0.1:\(port)",
                 verificationCode: String(repeating: "a", count: 64),
-                unlockPassword: String(repeating: "b", count: 64),
+                unlockCredential: .sha256Digest(String(repeating: "b", count: 64)),
                 door: 1,
                 lockNumber: 1
             )
@@ -168,6 +257,73 @@ final class LocalQualvisionClientTests: XCTestCase {
                 lockNumber: 0
             )
         )
+        XCTAssertThrowsError(
+            try LocalQualvisionClient.makeOpenDoorRequest(
+                monitorAddress: "192.168.50.10",
+                verificationCode: digest,
+                unlockPassword: "separate-unlock-password",
+                door: 3
+            )
+        )
+        XCTAssertThrowsError(
+            try LocalQualvisionClient.makeOpenDoorRequest(
+                monitorAddress: "192.168.50.10",
+                verificationCode: digest,
+                unlockPassword: "separate-unlock-password",
+                door: 1,
+                lockNumber: 2
+            )
+        )
+    }
+}
+
+private struct AddressFixtures: Decodable {
+    let cases: [AddressFixture]
+}
+
+private struct AddressFixture: Decodable {
+    let id: String
+    let input: String
+    let canonical: String?
+}
+
+private struct ControlFixtures: Decodable {
+    let method: String
+    let path: String
+    let contentType: String
+    let verificationDigest: String
+    let status: StatusFixture
+    let controls: [ControlFixture]
+}
+
+private struct StatusFixture: Decodable {
+    let command: String
+    let expectedXml: String
+}
+
+private struct ControlFixture: Decodable {
+    let id: String
+    let door: Int
+    let lock: Int
+    let unlockCredential: UnlockCredentialFixture
+    let expectedXml: String
+}
+
+private struct UnlockCredentialFixture: Decodable {
+    let kind: String
+    let value: String
+}
+
+private enum FixtureLoader {
+    static func load<Value: Decodable>(_ name: String) throws -> Value {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(contentsOf: repositoryRoot.appendingPathComponent("protocol/\(name)"))
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(Value.self, from: data)
     }
 }
 

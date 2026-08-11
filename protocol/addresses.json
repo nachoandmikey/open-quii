@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "private_default_scheme",
+      "input": "192.168.50.10",
+      "canonical": "http://192.168.50.10"
+    },
+    {
+      "id": "private_https_port_and_slash",
+      "input": " https://192.168.50.10:8443/ ",
+      "canonical": "https://192.168.50.10:8443"
+    },
+    {
+      "id": "private_10",
+      "input": "HTTP://10.0.0.1",
+      "canonical": "http://10.0.0.1"
+    },
+    {
+      "id": "private_172_lower_boundary",
+      "input": "172.16.0.1:10080",
+      "canonical": "http://172.16.0.1:10080"
+    },
+    {
+      "id": "private_172_upper_boundary",
+      "input": "172.31.255.254",
+      "canonical": "http://172.31.255.254"
+    },
+    {
+      "id": "link_local",
+      "input": "169.254.20.30",
+      "canonical": "http://169.254.20.30"
+    },
+    {
+      "id": "loopback",
+      "input": "127.0.0.1:18080",
+      "canonical": "http://127.0.0.1:18080"
+    },
+    {
+      "id": "empty",
+      "input": "   ",
+      "canonical": null
+    },
+    {
+      "id": "public_documentation_address",
+      "input": "203.0.113.10",
+      "canonical": null
+    },
+    {
+      "id": "outside_private_172_range",
+      "input": "172.32.0.1",
+      "canonical": null
+    },
+    {
+      "id": "ambiguous_leading_zero",
+      "input": "192.168.050.10",
+      "canonical": null
+    },
+    {
+      "id": "integer_ipv4",
+      "input": "3232248330",
+      "canonical": null
+    },
+    {
+      "id": "hex_ipv4",
+      "input": "0xc0.0xa8.0x32.0x0a",
+      "canonical": null
+    },
+    {
+      "id": "hostname",
+      "input": "monitor.example",
+      "canonical": null
+    },
+    {
+      "id": "ipv6",
+      "input": "http://[::1]",
+      "canonical": null
+    },
+    {
+      "id": "userinfo",
+      "input": "http://fake-user:fake-password@192.168.50.10",
+      "canonical": null
+    },
+    {
+      "id": "path",
+      "input": "http://192.168.50.10/status",
+      "canonical": null
+    },
+    {
+      "id": "double_slash_path",
+      "input": "http://192.168.50.10//",
+      "canonical": null
+    },
+    {
+      "id": "query",
+      "input": "http://192.168.50.10?mode=fake",
+      "canonical": null
+    },
+    {
+      "id": "fragment",
+      "input": "http://192.168.50.10#fake",
+      "canonical": null
+    },
+    {
+      "id": "zero_port",
+      "input": "http://192.168.50.10:0",
+      "canonical": null
+    },
+    {
+      "id": "oversized_port",
+      "input": "http://192.168.50.10:65536",
+      "canonical": null
+    },
+    {
+      "id": "missing_octet",
+      "input": "192.168.50",
+      "canonical": null
+    },
+    {
+      "id": "non_http_scheme",
+      "input": "ftp://192.168.50.10",
+      "canonical": null
+    }
+  ]
+}
