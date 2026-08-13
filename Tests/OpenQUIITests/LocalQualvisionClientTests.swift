@@ -81,6 +81,22 @@ final class LocalQualvisionClientTests: XCTestCase {
         XCTAssertEqual(body.components(separatedBy: "<password>\(unlockDigest)</password>").count - 1, 1)
     }
 
+    func testTailscaleCGNATLiteralIsAcceptedWithoutAllowingHostnamesOrPublic100Space() throws {
+        XCTAssertEqual(
+            try LocalQualvisionClient.canonicalMonitorAddress("100.86.148.106:10080"),
+            "http://100.86.148.106:10080"
+        )
+        let request = try LocalQualvisionClient.makeReadOnlyRequest(
+            monitorAddress: "100.86.148.106:10080",
+            verificationCode: String(repeating: "d", count: 64),
+            command: "get.device.status"
+        )
+        XCTAssertEqual(request.url?.absoluteString, "http://100.86.148.106:10080/tdkcgi")
+        for address in ["100.63.255.255:10080", "100.128.0.1:10080", "example.ts.net:10080"] {
+            XCTAssertThrowsError(try LocalQualvisionClient.canonicalMonitorAddress(address), address)
+        }
+    }
+
     func testDoorControlRejectsNonLocalHostnameBeforeBuildingRequest() {
         XCTAssertThrowsError(
             try LocalQualvisionClient.makeOpenDoorRequest(
