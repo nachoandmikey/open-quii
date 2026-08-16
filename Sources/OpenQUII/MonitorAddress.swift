@@ -7,18 +7,23 @@ public enum MonitorAddress {
     }
 
     /// Returns an HTTP(S) base URL only when the host is a canonical private or local IPv4 literal.
-    public static func canonicalBaseAddress(_ input: String) throws -> String {
-        try validatedAddress(input).baseAddress
+    public static func canonicalBaseAddress(
+        _ input: String,
+        trustedHostnames: Set<String> = []
+    ) throws -> String {
+        try validatedAddress(input, trustedHostnames: trustedHostnames).baseAddress
     }
 
     /// Returns the validated private or local IPv4 host.
-    public static func host(_ input: String) throws -> String {
-        try validatedAddress(input).host
+    public static func host(_ input: String, trustedHostnames: Set<String> = []) throws -> String {
+        try validatedAddress(input, trustedHostnames: trustedHostnames).host
     }
 
     /// Returns the validated local-control endpoint without accepting user info, paths, queries, or fragments.
-    public static func controlURL(_ input: String) throws -> URL {
-        guard let url = URL(string: try validatedAddress(input).baseAddress + "/tdkcgi") else {
+    public static func controlURL(_ input: String, trustedHostnames: Set<String> = []) throws -> URL {
+        guard let url = URL(
+            string: try validatedAddress(input, trustedHostnames: trustedHostnames).baseAddress + "/tdkcgi"
+        ) else {
             throw ValidationError.invalid
         }
         return url
@@ -36,7 +41,10 @@ public enum MonitorAddress {
 
     /// This parser intentionally does not use URL hostname normalization: alternate
     /// integer, octal, hexadecimal, and percent-encoded IPv4 forms are ambiguous.
-    private static func validatedAddress(_ input: String) throws -> ValidatedAddress {
+    private static func validatedAddress(
+        _ input: String,
+        trustedHostnames: Set<String>
+    ) throws -> ValidatedAddress {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw ValidationError.invalid }
 
@@ -67,7 +75,9 @@ public enum MonitorAddress {
         let hostAndPort = authority.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
         guard hostAndPort.count == 1 || hostAndPort.count == 2 else { throw ValidationError.invalid }
         let host = String(hostAndPort[0])
-        guard isCanonicalPrivateOrLocalIPv4(host) else { throw ValidationError.invalid }
+        guard isCanonicalPrivateOrLocalIPv4(host) || isTrustedHostname(host, allowlist: trustedHostnames) else {
+            throw ValidationError.invalid
+        }
 
         var port: Int?
         if hostAndPort.count == 2 {
@@ -103,5 +113,13 @@ public enum MonitorAddress {
             || (octets[0] == 192 && octets[1] == 168)
             || (octets[0] == 169 && octets[1] == 254)
             || octets[0] == 127
+    }
+
+    private static func isTrustedHostname(_ host: String, allowlist: Set<String>) -> Bool {
+        guard host == host.lowercased(),
+              host.range(of: "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", options: .regularExpression) != nil else {
+            return false
+        }
+        return allowlist.contains(host)
     }
 }

@@ -97,6 +97,39 @@ final class LocalQualvisionClientTests: XCTestCase {
         }
     }
 
+    func testExactTrustedTailnetHostnameIsAcceptedWithoutTrustingOtherDNSNames() throws {
+        let host = "mikeys-mac-mini.tailaf453c.ts.net"
+        let trusted = Set([host])
+        XCTAssertEqual(
+            try LocalQualvisionClient.canonicalMonitorAddress(
+                "\(host):10080",
+                trustedHostnames: trusted
+            ),
+            "http://\(host):10080"
+        )
+        let request = try LocalQualvisionClient.makeOpenDoorRequest(
+            monitorAddress: "\(host):10080",
+            verificationCode: String(repeating: "d", count: 64),
+            unlockCredential: .sha256Digest(String(repeating: "e", count: 64)),
+            door: 1,
+            trustedHostnames: trusted
+        )
+        XCTAssertEqual(request.url?.absoluteString, "http://\(host):10080/tdkcgi")
+
+        for address in [
+            "other.tailaf453c.ts.net:10080",
+            "MIKEYS-MAC-MINI.tailaf453c.ts.net:10080",
+            "user@\(host):10080",
+            "\(host):10080/path"
+        ] {
+            XCTAssertThrowsError(
+                try LocalQualvisionClient.canonicalMonitorAddress(address, trustedHostnames: trusted),
+                address
+            )
+        }
+        XCTAssertThrowsError(try LocalQualvisionClient.canonicalMonitorAddress("\(host):10080"))
+    }
+
     func testDoorControlRejectsNonLocalHostnameBeforeBuildingRequest() {
         XCTAssertThrowsError(
             try LocalQualvisionClient.makeOpenDoorRequest(

@@ -59,8 +59,10 @@ public struct LocalQualvisionClient: Sendable {
     }
 
     private let session: URLSession
+    private let trustedHostnames: Set<String>
 
-    public init(session: URLSession? = nil) {
+    public init(session: URLSession? = nil, trustedHostnames: Set<String> = []) {
+        self.trustedHostnames = trustedHostnames
         if let session {
             self.session = session
         } else {
@@ -106,7 +108,8 @@ public struct LocalQualvisionClient: Sendable {
             verificationCode: verificationCode,
             unlockCredential: unlockCredential,
             door: door,
-            lockNumber: lockNumber
+            lockNumber: lockNumber,
+            trustedHostnames: trustedHostnames
         )
         try await execute(request)
     }
@@ -123,9 +126,12 @@ public struct LocalQualvisionClient: Sendable {
         guard result == "0" else { throw ClientError.rejected(result) }
     }
 
-    public static func canonicalMonitorAddress(_ monitorAddress: String) throws -> String {
+    public static func canonicalMonitorAddress(
+        _ monitorAddress: String,
+        trustedHostnames: Set<String> = []
+    ) throws -> String {
         do {
-            return try MonitorAddress.canonicalBaseAddress(monitorAddress)
+            return try MonitorAddress.canonicalBaseAddress(monitorAddress, trustedHostnames: trustedHostnames)
         } catch {
             throw ClientError.invalidAddress
         }
@@ -134,7 +140,8 @@ public struct LocalQualvisionClient: Sendable {
     public static func makeReadOnlyRequest(
         monitorAddress: String,
         verificationCode: String,
-        command: String
+        command: String,
+        trustedHostnames: Set<String> = []
     ) throws -> URLRequest {
         let allowedCommands = Set(["get.device.status"])
         guard allowedCommands.contains(command) else { throw ClientError.invalidResponse }
@@ -142,7 +149,8 @@ public struct LocalQualvisionClient: Sendable {
             monitorAddress: monitorAddress,
             verificationCode: verificationCode,
             command: command,
-            contentXML: "<content></content>"
+            contentXML: "<content></content>",
+            trustedHostnames: trustedHostnames
         )
     }
 
@@ -152,7 +160,8 @@ public struct LocalQualvisionClient: Sendable {
         verificationCode: String,
         unlockPassword: String,
         door: Int,
-        lockNumber: Int = 1
+        lockNumber: Int = 1,
+        trustedHostnames: Set<String> = []
     ) throws -> URLRequest {
         guard !isAmbiguousLegacyUnlockPassword(unlockPassword) else {
             throw ClientError.missingVerificationCode
@@ -162,7 +171,8 @@ public struct LocalQualvisionClient: Sendable {
             verificationCode: verificationCode,
             unlockCredential: .plaintext(unlockPassword),
             door: door,
-            lockNumber: lockNumber
+            lockNumber: lockNumber,
+            trustedHostnames: trustedHostnames
         )
     }
 
@@ -172,7 +182,8 @@ public struct LocalQualvisionClient: Sendable {
         verificationCode: String,
         unlockCredential: UnlockCredential,
         door: Int,
-        lockNumber: Int = 1
+        lockNumber: Int = 1,
+        trustedHostnames: Set<String> = []
     ) throws -> URLRequest {
         guard (door == 1 || door == 2), lockNumber == 1 else { throw ClientError.invalidAddress }
         let credential = verificationCode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -188,7 +199,8 @@ public struct LocalQualvisionClient: Sendable {
             monitorAddress: monitorAddress,
             verificationCode: credential,
             command: "set.device.opendoor",
-            contentXML: "<content><door>\(door)</door><locknumber>\(lockNumber)</locknumber><password>\(encodedUnlockPassword)</password></content>"
+            contentXML: "<content><door>\(door)</door><locknumber>\(lockNumber)</locknumber><password>\(encodedUnlockPassword)</password></content>",
+            trustedHostnames: trustedHostnames
         )
     }
 
@@ -201,11 +213,12 @@ public struct LocalQualvisionClient: Sendable {
         monitorAddress: String,
         verificationCode: String,
         command: String,
-        contentXML: String
+        contentXML: String,
+        trustedHostnames: Set<String>
     ) throws -> URLRequest {
         let url: URL
         do {
-            url = try MonitorAddress.controlURL(monitorAddress)
+            url = try MonitorAddress.controlURL(monitorAddress, trustedHostnames: trustedHostnames)
         } catch {
             throw ClientError.invalidAddress
         }
