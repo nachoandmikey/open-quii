@@ -14,13 +14,15 @@
           "address": "Monitor address",
           "username": "Control username",
           "verification_digest": "Verification digest",
-          "unlock_password": "Unlock password"
+          "unlock_credential_mode": "Unlock credential format",
+          "unlock_password": "Unlock credential"
         },
         "data_description": {
           "address": "Literal private, link-local, or loopback IPv4 HTTP origin.",
           "username": "Username for the authenticated control header.",
           "verification_digest": "64-character verification digest for header authentication.",
-          "unlock_password": "Password used only for an explicit door-control action."
+          "unlock_credential_mode": "Choose explicitly whether the supplied value is plaintext or an already encoded SHA-256 digest.",
+          "unlock_password": "Credential used only for an explicit door-control action. Digest mode requires exactly 64 hexadecimal characters."
         }
       }
     }
