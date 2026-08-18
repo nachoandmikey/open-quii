@@ -52,10 +52,10 @@ data.
 
 ## Swift package
 
-After the `0.2.0` release, add this repository as a Swift Package dependency:
+After the `0.2.1` release, add this repository as a Swift Package dependency:
 
 ```swift
-.package(url: "https://github.com/nachoandmikey/open-quii.git", from: "0.2.0")
+.package(url: "https://github.com/nachoandmikey/open-quii.git", from: "0.2.1")
 ```
 
 The existing stable `0.1.0` tag remains available for consumers pinned to that

@@ -16,7 +16,7 @@ from .const import (
     UNLOCK_CREDENTIAL_MODE_PLAINTEXT,
     UNLOCK_CREDENTIAL_MODE_SHA256_DIGEST,
 )
-from .control_policy import is_authenticated_user_action
+from .control_policy import is_authenticated_human_user, is_authenticated_user_action
 from .core import Door, OpenQUIIError, UnlockPassword, UnlockPasswordDigest
 from .entity import OpenQUIIEntity
 
@@ -66,9 +66,9 @@ class OpenQUIIDoorButton(OpenQUIIEntity, ButtonEntity):
                 "Door control requires an authenticated Home Assistant user."
             )
         user = await self.hass.auth.async_get_user(user_id)
-        if user is None:
+        if not is_authenticated_human_user(user):
             raise HomeAssistantError(
-                "Door control requires an authenticated Home Assistant user."
+                "Door control requires an active, non-system Home Assistant user."
             )
 
         unlock_value = self._entry.data[CONF_UNLOCK_PASSWORD]
