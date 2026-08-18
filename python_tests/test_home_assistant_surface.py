@@ -20,7 +20,9 @@ def test_manifest_and_packaging_share_one_canonical_core() -> None:
     assert manifest["config_flow"] is True
     assert manifest["iot_class"] == "local_polling"
     assert manifest["requirements"] == []
-    assert manifest["version"] == "0.2.0"
+    assert manifest["version"] == "0.2.1"
+    assert pyproject["project"]["version"] == "0.2.1"
+    assert '__version__ = "0.2.1"' in (_INTEGRATION / "core" / "__init__.py").read_text()
     assert pyproject["tool"]["setuptools"]["package-dir"]["openquii"] == (
         "custom_components/openquii/core"
     )
@@ -92,3 +94,27 @@ def test_pure_user_action_policy_rejects_automation_context() -> None:
 def test_setup_polling_and_config_flow_never_reference_actuation() -> None:
     for name in ("__init__.py", "config_flow.py", "coordinator.py", "diagnostics.py"):
         assert "open_door" not in (_INTEGRATION / name).read_text()
+
+
+def test_unlock_credential_mode_is_explicit_and_never_inferred_by_shape() -> None:
+    flow = (_INTEGRATION / "config_flow.py").read_text()
+    button = (_INTEGRATION / "button.py").read_text()
+
+    assert "VERSION = 2" in flow
+    assert "CONF_UNLOCK_CREDENTIAL_MODE" in flow
+    assert "UnlockPassword(user_input[CONF_UNLOCK_PASSWORD])" in flow
+    assert "UnlockPasswordDigest(user_input[CONF_UNLOCK_PASSWORD])" in flow
+    assert "len(" not in flow
+    assert "fullmatch" not in flow
+
+    assert "UnlockPassword(unlock_value)" in button
+    assert "UnlockPasswordDigest(unlock_value)" in button
+    assert "UNLOCK_CREDENTIAL_MODE_PLAINTEXT" in button
+    assert "UNLOCK_CREDENTIAL_MODE_SHA256_DIGEST" in button
+
+
+def test_v1_migration_preserves_legacy_plaintext_semantics() -> None:
+    source = (_INTEGRATION / "__init__.py").read_text()
+    assert "if entry.version == 1:" in source
+    assert "data[CONF_UNLOCK_CREDENTIAL_MODE] = UNLOCK_CREDENTIAL_MODE_PLAINTEXT" in source
+    assert "async_update_entry(entry, data=data, version=2)" in source

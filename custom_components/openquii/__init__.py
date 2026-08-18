@@ -11,8 +11,10 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
     CONF_ADDRESS,
+    CONF_UNLOCK_CREDENTIAL_MODE,
     CONF_USERNAME,
     CONF_VERIFICATION_DIGEST,
+    UNLOCK_CREDENTIAL_MODE_PLAINTEXT,
 )
 from .coordinator import OpenQUIICoordinator
 from .core import ControlCredentials, ControlUsername, OpenQUIIClient, VerificationDigest
@@ -51,3 +53,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenQUIIConfigEntry) -> 
 async def async_unload_entry(hass: HomeAssistant, entry: OpenQUIIConfigEntry) -> bool:
     """Unload an OpenQUII config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: OpenQUIIConfigEntry) -> bool:
+    """Make the legacy implicit plaintext mode explicit without guessing values."""
+    if entry.version == 1:
+        data = dict(entry.data)
+        data[CONF_UNLOCK_CREDENTIAL_MODE] = UNLOCK_CREDENTIAL_MODE_PLAINTEXT
+        hass.config_entries.async_update_entry(entry, data=data, version=2)
+    return True

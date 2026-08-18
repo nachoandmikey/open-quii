@@ -51,4 +51,4 @@ __all__ = [
     "canonicalize_monitor_address",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"

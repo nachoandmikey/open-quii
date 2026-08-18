@@ -10,9 +10,14 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import OpenQUIIConfigEntry
-from .const import CONF_UNLOCK_PASSWORD
+from .const import (
+    CONF_UNLOCK_CREDENTIAL_MODE,
+    CONF_UNLOCK_PASSWORD,
+    UNLOCK_CREDENTIAL_MODE_PLAINTEXT,
+    UNLOCK_CREDENTIAL_MODE_SHA256_DIGEST,
+)
 from .control_policy import is_authenticated_user_action
-from .core import Door, OpenQUIIError, UnlockPassword
+from .core import Door, OpenQUIIError, UnlockPassword, UnlockPasswordDigest
 from .entity import OpenQUIIEntity
 
 
@@ -66,9 +71,22 @@ class OpenQUIIDoorButton(OpenQUIIEntity, ButtonEntity):
                 "Door control requires an authenticated Home Assistant user."
             )
 
-        unlock_password = UnlockPassword(self._entry.data[CONF_UNLOCK_PASSWORD])
+        unlock_value = self._entry.data[CONF_UNLOCK_PASSWORD]
+        unlock_mode = self._entry.data.get(
+            CONF_UNLOCK_CREDENTIAL_MODE,
+            UNLOCK_CREDENTIAL_MODE_PLAINTEXT,
+        )
+        if unlock_mode == UNLOCK_CREDENTIAL_MODE_PLAINTEXT:
+            unlock_credential = UnlockPassword(unlock_value)
+        elif unlock_mode == UNLOCK_CREDENTIAL_MODE_SHA256_DIGEST:
+            unlock_credential = UnlockPasswordDigest(unlock_value)
+        else:
+            raise HomeAssistantError("The configured unlock credential mode is invalid.")
         try:
-            await self.coordinator.client.open_door(self._description.door, unlock_password)
+            await self.coordinator.client.open_door(
+                self._description.door,
+                unlock_credential,
+            )
         except OpenQUIIError as error:
             # Keep transport and credential details out of HA logs and state.
             raise HomeAssistantError("The monitor did not confirm door control.") from error
