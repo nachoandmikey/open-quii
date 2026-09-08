@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import NoReturn
 
 import pytest
@@ -158,8 +160,8 @@ def test_response_body_failure_is_sanitized_and_released() -> None:
     assert len(session.calls) == 1
 
 
-def test_namespaced_rejection_is_parsed_and_not_retried() -> None:
-    response = FakeResponse(200, '<e:envelope xmlns:e="urn:fake"><e:error>7</e:error></e:envelope>')
+def test_rejection_is_parsed_and_not_retried() -> None:
+    response = FakeResponse(200, '<envelope><body><error>7</error></body></envelope>')
     session = FakeSession(response)
 
     with pytest.raises(ControlRejectedError) as caught:
@@ -177,3 +179,29 @@ def test_malformed_or_incomplete_response_is_rejected(body: str) -> None:
         asyncio.run(_client(session).read_status())
 
     assert len(session.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "case",
+    json.loads(
+        (Path(__file__).resolve().parents[1] / "protocol/control_responses.json").read_text()
+    )["cases"],
+    ids=lambda case: case["id"],
+)
+def test_shared_responses_through_one_shot_executor(case) -> None:
+    response = FakeResponse(200, case["xml"])
+    session = FakeSession(response)
+    action = _client(session).open_door(Door.ONE, UnlockPassword("synthetic-secret"))
+    if case["code"] is None:
+        with pytest.raises(InvalidResponseError):
+            asyncio.run(action)
+    elif case["code"] != "0":
+        with pytest.raises(ControlRejectedError) as caught:
+            asyncio.run(action)
+        assert caught.value.protocol_code == case["code"]
+    else:
+        asyncio.run(action)
+    assert len(session.calls) == 1
+    assert session.calls[0]["allow_redirects"] is False
+    assert response.released
+    assert session.close_calls == 0

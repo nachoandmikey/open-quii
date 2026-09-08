@@ -61,11 +61,34 @@ must reject every 3xx response even if the injected transport returns one. They
 must not retry, confirm by a second control request, or actuate during discovery,
 configuration, startup, polling, diagnostics, or background refresh.
 
-A response is successful only when it is well-formed XML, the HTTP status is
-successful, and the first protocol `error` or `result` value is `0`. A nonzero
-protocol value is a rejection. An absent value or malformed XML is invalid. An
-ambiguous transport result remains ambiguous and must never be retried
-automatically.
+A response is successful only when the HTTP status is 2xx and the response
+satisfies **all** of this fail-closed contract:
+
+- Well-formed XML, with an exact, unnamespaced `envelope` root and exactly one
+  direct `body` child. Element names are case-sensitive; namespaced elements
+  are not a supported response dialect.
+- Exactly one `error` **or** `result` element in the entire document, located
+  directly at `envelope/body/error` or `envelope/body/result`. Duplicate values
+  (even equal ones), mixed error/result values, misplaced codes, and child
+  elements within the code are invalid. Unrelated metadata is permitted.
+- The code, after trimming only XML whitespace (space, tab, CR, LF), matches
+  `0|-?[1-9][0-9]*` and fits a signed 64-bit integer. Thus only literal `0`
+  means accepted; canonical nonzero values mean rejected. Empty, nonnumeric,
+  overflow, signed-zero, plus-prefixed, and leading-zero values are invalid.
+- DTDs are forbidden and external entities are not resolved. CDATA and normal
+  XML character references may supply code text. Responses are limited to
+  1 MiB of UTF-8; Swift requires UTF-8 bytes, while Python takes decoded text
+  and applies the limit to its UTF-8 representation.
+
+Invalid/contradictory responses are **not** evidence of either physical success
+or definite device rejection. They remain uncertain and must never cause an
+automatic retry. This intentionally replaces the older first-code-wins and
+namespace-stripping behavior.
+
+`control_responses.json` is the normative shared synthetic acceptance/rejection
+corpus. Both runtimes run it through their parser and one-shot executor with
+in-memory responses; no device is needed. Existing redirect tests remain in
+place (Swift also exercises a real loopback 307).
 
 `control_requests.json` contains normative cross-runtime XML construction vectors.
 `framing_vectors.json` contains sanitized, generated reference vectors for the
