@@ -1,6 +1,6 @@
 import Testing
 @testable import OpenQUII
 
-@Test func developmentVersionIsPresent() {
-    #expect(!OpenQUII.version.isEmpty)
+@Test func developmentVersionMatchesRelease() {
+    #expect(OpenQUII.version == "0.2.1")
 }

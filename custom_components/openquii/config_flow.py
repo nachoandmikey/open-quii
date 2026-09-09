@@ -11,10 +11,13 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_ADDRESS,
+    CONF_UNLOCK_CREDENTIAL_MODE,
     CONF_UNLOCK_PASSWORD,
     CONF_USERNAME,
     CONF_VERIFICATION_DIGEST,
     DOMAIN,
+    UNLOCK_CREDENTIAL_MODE_PLAINTEXT,
+    UNLOCK_CREDENTIAL_MODE_SHA256_DIGEST,
 )
 from .core import (
     AddressValidationError,
@@ -22,6 +25,7 @@ from .core import (
     ControlUsername,
     CredentialValidationError,
     UnlockPassword,
+    UnlockPasswordDigest,
     VerificationDigest,
     canonicalize_monitor_address,
 )
@@ -35,6 +39,24 @@ _USER_SCHEMA = vol.Schema(
         vol.Required(CONF_ADDRESS): str,
         vol.Required(CONF_USERNAME): str,
         vol.Required(CONF_VERIFICATION_DIGEST): _SECRET_SELECTOR,
+        vol.Required(
+            CONF_UNLOCK_CREDENTIAL_MODE,
+            default=UNLOCK_CREDENTIAL_MODE_PLAINTEXT,
+        ): selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[
+                    selector.SelectOptionDict(
+                        value=UNLOCK_CREDENTIAL_MODE_PLAINTEXT,
+                        label="Plaintext password",
+                    ),
+                    selector.SelectOptionDict(
+                        value=UNLOCK_CREDENTIAL_MODE_SHA256_DIGEST,
+                        label="Pre-encoded SHA-256 digest",
+                    ),
+                ],
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        ),
         vol.Required(CONF_UNLOCK_PASSWORD): _SECRET_SELECTOR,
     }
 )
@@ -43,7 +65,7 @@ _USER_SCHEMA = vol.Schema(
 class OpenQUIIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Configure one OpenQUII monitor without live or actuating validation."""
 
-    VERSION = 1
+    VERSION = 2
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -59,7 +81,13 @@ class OpenQUIIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         user_input[CONF_VERIFICATION_DIGEST]
                     ),
                 )
-                unlock_password = UnlockPassword(user_input[CONF_UNLOCK_PASSWORD])
+                unlock_mode = user_input[CONF_UNLOCK_CREDENTIAL_MODE]
+                if unlock_mode == UNLOCK_CREDENTIAL_MODE_PLAINTEXT:
+                    unlock_credential = UnlockPassword(user_input[CONF_UNLOCK_PASSWORD])
+                elif unlock_mode == UNLOCK_CREDENTIAL_MODE_SHA256_DIGEST:
+                    unlock_credential = UnlockPasswordDigest(user_input[CONF_UNLOCK_PASSWORD])
+                else:
+                    raise CredentialValidationError("unlock credential mode")
             except (AddressValidationError, CredentialValidationError):
                 errors["base"] = "invalid_input"
             else:
@@ -71,7 +99,8 @@ class OpenQUIIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_ADDRESS: address.base_url,
                         CONF_USERNAME: credentials.username.value,
                         CONF_VERIFICATION_DIGEST: credentials.verification_digest.value,
-                        CONF_UNLOCK_PASSWORD: unlock_password.value,
+                        CONF_UNLOCK_CREDENTIAL_MODE: unlock_mode,
+                        CONF_UNLOCK_PASSWORD: unlock_credential.value,
                     },
                 )
 

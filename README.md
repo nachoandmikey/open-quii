@@ -52,10 +52,10 @@ data.
 
 ## Swift package
 
-After the `0.2.0` release, add this repository as a Swift Package dependency:
+After the `0.2.1` release, add this repository as a Swift Package dependency:
 
 ```swift
-.package(url: "https://github.com/nachoandmikey/open-quii.git", from: "0.2.0")
+.package(url: "https://github.com/nachoandmikey/open-quii.git", from: "0.2.1")
 ```
 
 The existing stable `0.1.0` tag remains available for consumers pinned to that
@@ -130,6 +130,10 @@ Development installation:
 2. Restart Home Assistant.
 3. Add **OpenQUII** from **Settings → Devices & services**.
 4. Enter a literal local monitor IPv4 origin and the installation credentials.
+5. Choose the unlock credential format explicitly: **Plaintext password** hashes the
+   supplied value once; **Pre-encoded SHA-256 digest** requires 64 hexadecimal
+   characters and transmits that digest unchanged. The integration never infers the
+   mode from the value's shape.
 
 Setup validates values offline and never actuates a door. The coordinator polls only
 `get.device.status`. Door buttons require a service context carrying an authenticated
@@ -139,11 +143,12 @@ notifications cannot unlock.
 
 Credentials are stored only in Home Assistant config-entry data, its designated
 secret-bearing configuration store. Diagnostics redact address, username,
-verification digest, and unlock password.
+verification digest, and unlock credential. Legacy v1 entries migrate explicitly to
+plaintext mode; no stored value is reclassified by shape.
 
 A formal HACS default-repository listing and a Home Assistant Core submission are
 separate future review processes; this integration can be installed as a HACS custom
-repository once `0.2.0` is released.
+repository from release `0.2.1` or later.
 
 ## Development and verification
 
