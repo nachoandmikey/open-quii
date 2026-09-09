@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Mapping
 from typing import Protocol
 from xml.etree import ElementTree
@@ -11,7 +12,7 @@ from .credentials import ControlCredentials, UnlockCredential
 from .models import DeviceStatus, Door, RequestSpec
 from .requests import build_open_door_request, build_status_request
 
-_MAXIMUM_RESPONSE_CHARACTERS = 1_048_576
+_MAXIMUM_RESPONSE_BYTES = 1_048_576
 
 
 class OpenQUIIError(Exception):
@@ -159,19 +160,32 @@ class OpenQUIIClient:
 
 
 def _parse_protocol_code(body: str) -> str:
-    if len(body) > _MAXIMUM_RESPONSE_CHARACTERS:
+    if len(body.encode("utf-8")) > _MAXIMUM_RESPONSE_BYTES or "<!DOCTYPE" in body:
         raise InvalidResponseError
     try:
         root = ElementTree.fromstring(body)
     except ElementTree.ParseError:
         raise InvalidResponseError from None
 
-    # An explicit error wins even when a malformed response also includes result.
-    for expected_name in ("error", "result"):
-        for element in root.iter():
-            local_name = element.tag.rsplit("}", 1)[-1].lower()
-            if local_name == expected_name and element.text is not None:
-                code = element.text.strip()
-                if code:
-                    return code
-    raise InvalidResponseError
+    # One exact envelope/body and one leaf result in the entire document.
+    # Never select the first of contradictory or misplaced results.
+    bodies = root.findall("body")
+    if root.tag != "envelope" or len(bodies) != 1:
+        raise InvalidResponseError
+    results = []
+    for element in root.iter():
+        if "}" in element.tag or ":" in element.tag:
+            raise InvalidResponseError
+        if element.tag.lower() in ("error", "result"):
+            results.append(element)
+    if len(results) != 1:
+        raise InvalidResponseError
+    result = results[0]
+    if result.tag not in ("error", "result") or result not in list(bodies[0]) or len(result):
+        raise InvalidResponseError
+    code = (result.text or "").strip(" \t\r\n")
+    if not re.fullmatch(r"0|-?[1-9][0-9]*", code) or len(code) > 20:
+        raise InvalidResponseError
+    if not -(2**63) <= int(code) <= 2**63 - 1:
+        raise InvalidResponseError
+    return code

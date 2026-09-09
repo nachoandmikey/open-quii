@@ -1,0 +1,209 @@
+{
+  "cases": [
+    {
+      "id": "zero",
+      "xml": "<envelope><body><error>0</error></body></envelope>",
+      "code": "0"
+    },
+    {
+      "id": "negative",
+      "xml": "<envelope><body><error>-3</error></body></envelope>",
+      "code": "-3"
+    },
+    {
+      "id": "positive",
+      "xml": "<envelope><body><error>7</error></body></envelope>",
+      "code": "7"
+    },
+    {
+      "id": "max",
+      "xml": "<envelope><body><error>9223372036854775807</error></body></envelope>",
+      "code": "9223372036854775807"
+    },
+    {
+      "id": "min",
+      "xml": "<envelope><body><error>-9223372036854775808</error></body></envelope>",
+      "code": "-9223372036854775808"
+    },
+    {
+      "id": "result",
+      "xml": "<envelope><body><result>0</result></body></envelope>",
+      "code": "0"
+    },
+    {
+      "id": "whitespace",
+      "xml": "<envelope><body><error> \t0\r\n</error></body></envelope>",
+      "code": "0"
+    },
+    {
+      "id": "cdata",
+      "xml": "<envelope><body><error><![CDATA[0]]></error></body></envelope>",
+      "code": "0"
+    },
+    {
+      "id": "metadata",
+      "xml": "<envelope><header><command>synthetic</command></header><body><error>0</error><content><status>ready</status></content></body></envelope>",
+      "code": "0"
+    },
+    {
+      "id": "unrelated",
+      "xml": "<unrelated><error>0</error></unrelated>",
+      "code": null
+    },
+    {
+      "id": "wrong_path",
+      "xml": "<envelope><error>0</error></envelope>",
+      "code": null
+    },
+    {
+      "id": "nested_success",
+      "xml": "<envelope><body><error>0<error>-3</error></error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "nested_child",
+      "xml": "<envelope><body><error><code>0</code></error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "duplicate",
+      "xml": "<envelope><body><error>0</error><error>0</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "conflicting",
+      "xml": "<envelope><body><error>0</error><error>-3</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "mixed",
+      "xml": "<envelope><body><error>0</error><result>-3</result></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "mixed_equal",
+      "xml": "<envelope><body><result>0</result><error>0</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "elsewhere",
+      "xml": "<envelope><header><error>-3</error></header><body><error>0</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "duplicate_body",
+      "xml": "<envelope><body><error>0</error></body><body/></envelope>",
+      "code": null
+    },
+    {
+      "id": "nested_body",
+      "xml": "<envelope><body><content><error>0</error></content></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "missing",
+      "xml": "<envelope><body></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "empty",
+      "xml": "<envelope><body><error/></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "malformed",
+      "xml": "<envelope><body><error>0</error></body></envelope",
+      "code": null
+    },
+    {
+      "id": "trailing_root",
+      "xml": "<envelope><body><error>0</error></body></envelope><extra/>",
+      "code": null
+    },
+    {
+      "id": "namespace",
+      "xml": "<envelope xmlns=\"urn:fake\"><body><error>0</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "uppercase",
+      "xml": "<envelope><body><ERROR>0</ERROR></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "dtd",
+      "xml": "<!DOCTYPE envelope [<!ENTITY ok \"0\">]><envelope><body><error>&ok;</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "invalid_number_27",
+      "xml": "<envelope><body><error>00</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "invalid_number_28",
+      "xml": "<envelope><body><error>+0</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "invalid_number_29",
+      "xml": "<envelope><body><error>-0</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "invalid_number_30",
+      "xml": "<envelope><body><error>01</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "invalid_number_31",
+      "xml": "<envelope><body><error>+7</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "invalid_number_32",
+      "xml": "<envelope><body><error>1.0</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "invalid_number_33",
+      "xml": "<envelope><body><error>NaN</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "invalid_number_34",
+      "xml": "<envelope><body><error>accepted</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "invalid_number_35",
+      "xml": "<envelope><body><error>9_0</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "invalid_number_36",
+      "xml": "<envelope><body><error>\u0660</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "invalid_number_37",
+      "xml": "<envelope><body><error>9223372036854775808</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "invalid_number_38",
+      "xml": "<envelope><body><error>-9223372036854775809</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "invalid_number_39",
+      "xml": "<envelope><body><error>0 0</error></body></envelope>",
+      "code": null
+    },
+    {
+      "id": "invalid_number_40",
+      "xml": "<envelope><body><error>\u00a00\u00a0</error></body></envelope>",
+      "code": null
+    }
+  ]
+}

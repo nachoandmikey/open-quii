@@ -240,6 +240,10 @@ public struct LocalQualvisionClient: Sendable {
     }
 
     static func protocolCode(from data: Data) throws -> String {
+        // No DTD/entity expansion or encoding-dependent alternate parse.
+        guard data.count <= 1_048_576,
+              let xml = String(data: data, encoding: .utf8),
+              !xml.contains("<!DOCTYPE") else { throw ClientError.invalidResponse }
         let delegate = ProtocolResponseParserDelegate()
         let parser = XMLParser(data: data)
         parser.delegate = delegate
@@ -247,7 +251,10 @@ public struct LocalQualvisionClient: Sendable {
         parser.shouldResolveExternalEntities = false
         guard parser.parse(), parser.parserError == nil,
               !delegate.invalidTargetStructure,
-              let code = delegate.errorCode ?? delegate.resultCode else {
+              delegate.bodyCount == 1, delegate.codes.count == 1,
+              let code = delegate.codes.first,
+              code.range(of: "^(0|-?[1-9][0-9]*)$", options: .regularExpression) != nil,
+              Int64(code) != nil else {
             throw ClientError.invalidResponse
         }
         return code
@@ -255,10 +262,10 @@ public struct LocalQualvisionClient: Sendable {
 }
 
 private final class ProtocolResponseParserDelegate: NSObject, XMLParserDelegate {
-    private var activeElement: String?
+    private var stack: [String] = []
     private var text = ""
-    fileprivate private(set) var errorCode: String?
-    fileprivate private(set) var resultCode: String?
+    fileprivate private(set) var codes: [String] = []
+    fileprivate private(set) var bodyCount = 0
     fileprivate private(set) var invalidTargetStructure = false
 
     func parser(
@@ -268,19 +275,34 @@ private final class ProtocolResponseParserDelegate: NSObject, XMLParserDelegate 
         qualifiedName qName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
-        if activeElement != nil {
+        if stack.last == "error" || stack.last == "result" {
             invalidTargetStructure = true
-            return
         }
-        let localName = elementName.lowercased()
-        guard localName == "error" || localName == "result" else { return }
-        activeElement = localName
-        text = ""
+        stack.append(elementName)
+        if namespaceURI?.isEmpty == false || (stack.count == 1 && elementName != "envelope") {
+            invalidTargetStructure = true
+        }
+        if stack == ["envelope", "body"] { bodyCount += 1 }
+        if elementName.lowercased() == "error" || elementName.lowercased() == "result" {
+            if stack != ["envelope", "body", "error"] && stack != ["envelope", "body", "result"] {
+                invalidTargetStructure = true
+            }
+            text = ""
+        }
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        guard activeElement != nil else { return }
-        text += string
+        if stack == ["envelope", "body", "error"] || stack == ["envelope", "body", "result"] {
+            text += string
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+        guard let value = String(data: CDATABlock, encoding: .utf8) else {
+            invalidTargetStructure = true
+            return
+        }
+        self.parser(parser, foundCharacters: value)
     }
 
     func parser(
@@ -289,14 +311,9 @@ private final class ProtocolResponseParserDelegate: NSObject, XMLParserDelegate 
         namespaceURI: String?,
         qualifiedName qName: String?
     ) {
-        let localName = elementName.lowercased()
-        guard activeElement == localName else { return }
-        let code = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !code.isEmpty {
-            if localName == "error", errorCode == nil { errorCode = code }
-            if localName == "result", resultCode == nil { resultCode = code }
+        if stack == ["envelope", "body", "error"] || stack == ["envelope", "body", "result"] {
+            codes.append(text.trimmingCharacters(in: CharacterSet(charactersIn: " \t\r\n")))
         }
-        activeElement = nil
-        text = ""
+        if !stack.isEmpty { stack.removeLast() }
     }
 }

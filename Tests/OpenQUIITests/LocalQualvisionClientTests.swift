@@ -4,6 +4,54 @@ import XCTest
 @testable import OpenQUII
 
 final class LocalQualvisionClientTests: XCTestCase {
+    func testSharedControlResponseContract() throws {
+        struct Fixtures: Decodable {
+            struct Case: Decodable { let id: String; let xml: String; let code: String? }
+            let cases: [Case]
+        }
+        let fixtures: Fixtures = try FixtureLoader.load("control_responses.json")
+        for fixture in fixtures.cases {
+            if let code = fixture.code {
+                XCTAssertEqual(try LocalQualvisionClient.protocolCode(from: Data(fixture.xml.utf8)), code, fixture.id)
+            } else {
+                XCTAssertThrowsError(try LocalQualvisionClient.protocolCode(from: Data(fixture.xml.utf8)), fixture.id) {
+                    XCTAssertEqual($0 as? LocalQualvisionClient.ClientError, .invalidResponse, fixture.id)
+                }
+            }
+        }
+    }
+
+    func testSharedResponsesThroughOneShotExecutor() async throws {
+        struct Fixtures: Decodable {
+            struct Case: Decodable { let id: String; let xml: String; let code: String? }
+            let cases: [Case]
+        }
+        let fixtures: Fixtures = try FixtureLoader.load("control_responses.json")
+        for fixture in fixtures.cases {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [SyntheticControlResponseProtocol.self]
+            configuration.httpAdditionalHeaders = [
+                "X-Synthetic-Response": Data(fixture.xml.utf8).base64EncodedString()
+            ]
+            let session = URLSession(configuration: configuration)
+            defer { session.invalidateAndCancel() }
+            let client = LocalQualvisionClient(session: session)
+            do {
+                try await client.openDoor(
+                    monitorAddress: "127.0.0.1",
+                    verificationCode: String(repeating: "a", count: 64),
+                    unlockCredential: .sha256Digest(String(repeating: "b", count: 64)),
+                    door: 1
+                )
+                XCTAssertEqual(fixture.code, "0", fixture.id)
+            } catch {
+                let expected: LocalQualvisionClient.ClientError = fixture.code.map { .rejected($0) } ?? .invalidResponse
+                XCTAssertNotEqual(fixture.code, "0", fixture.id)
+                XCTAssertEqual(error as? LocalQualvisionClient.ClientError, expected, fixture.id)
+            }
+        }
+    }
+
     func testSharedAddressContract() throws {
         let fixtures: AddressFixtures = try FixtureLoader.load("addresses.json")
         for fixture in fixtures.cases {
@@ -221,9 +269,9 @@ final class LocalQualvisionClientTests: XCTestCase {
         XCTAssertThrowsError(try LocalQualvisionClient.protocolCode(from: nestedCode))
     }
 
-    func testProtocolResponseParsesNamespacedErrorBeforeResult() throws {
+    func testProtocolResponseRejectsNamespacedContradiction() throws {
         let response = Data("<e:envelope xmlns:e=\"urn:fake\"><e:result>0</e:result><e:error>7</e:error></e:envelope>".utf8)
-        XCTAssertEqual(try LocalQualvisionClient.protocolCode(from: response), "7")
+        XCTAssertThrowsError(try LocalQualvisionClient.protocolCode(from: response))
     }
 
     func testReadOnlyControlPathProbeCannotUnlock() throws {
@@ -456,4 +504,23 @@ private final class TestOneShotGate: @unchecked Sendable {
         claimed = true
         return true
     }
+}
+
+/// Intercepts every request in the fixture-owned session; never opens a socket.
+private final class SyntheticControlResponseProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let url = request.url,
+              let encoded = request.value(forHTTPHeaderField: "X-Synthetic-Response"),
+              let data = Data(base64Encoded: encoded),
+              let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

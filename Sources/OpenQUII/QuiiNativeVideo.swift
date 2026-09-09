@@ -14,6 +14,8 @@ public enum QuiiNativeVideoError: LocalizedError, Equatable {
     case malformedRecord
     case connectionClosed
     case streamTimedOut
+    case handshakeTimedOut
+    case streamStalled
 
     public var errorDescription: String? {
         switch self {
@@ -27,6 +29,8 @@ public enum QuiiNativeVideoError: LocalizedError, Equatable {
         case .malformedRecord: return "The monitor sent a malformed QUII record."
         case .connectionClosed: return "The monitor closed the native video connection."
         case .streamTimedOut: return "The monitor did not start the native video stream."
+        case .handshakeTimedOut: return "The native video connection or handshake timed out."
+        case .streamStalled: return "The native video stream stopped delivering frames."
         }
     }
 }
@@ -306,6 +310,14 @@ public final class QuiiNativeVideoReceiver: @unchecked Sendable {
     private let stream: UInt16
     private let queue = DispatchQueue(label: "OpenQUII.QuiiNativeVideoReceiver")
     private var connection: NWConnection?
+    private let queueKey = DispatchSpecificKey<Bool>()
+    private var timeout: DispatchWorkItem?
+    private var deadline = DispatchTime.now()
+    // Internal injection keeps production endpoints/timeout policy fixed.
+    var handshakeTimeout: TimeInterval = 8
+    var firstFrameTimeout: TimeInterval = 5
+    var frameIdleTimeout: TimeInterval = 8
+    var makeConnection: (@Sendable () -> NWConnection)?
 
     public init(
         credentials: QuiiNativeVideoCredentials,
@@ -320,6 +332,7 @@ public final class QuiiNativeVideoReceiver: @unchecked Sendable {
         self.port = port
         self.channel = channel
         self.stream = stream
+        queue.setSpecific(key: queueKey, value: true)
     }
 
     public func start(
@@ -327,44 +340,82 @@ public final class QuiiNativeVideoReceiver: @unchecked Sendable {
         onAudio: @escaping AudioHandler = { _ in },
         onFrame: @escaping FrameHandler
     ) {
-        stop()
-        let parameters = NWParameters.tcp
-        let connection = NWConnection(
-            host: NWEndpoint.Host(credentials.host),
-            port: NWEndpoint.Port(rawValue: port)!,
-            using: parameters
-        )
-        self.connection = connection
-        connection.stateUpdateHandler = { [weak self, weak connection] state in
-            guard let self,
-                  let connection,
-                  self.connection === connection else { return }
-            switch state {
-            case .setup:
-                onState("Opening Wi-Fi connection")
-            case .preparing:
-                onState("Preparing Wi-Fi connection")
-            case .waiting(let error):
-                onState("Wi-Fi route unavailable: \(error.localizedDescription)")
-            case .ready:
-                onState("Authenticating with monitor")
-                self.beginHandshake(connection: connection, onAudio: onAudio, onFrame: onFrame)
-            case .failed(let error):
-                onFrame(.failure(error))
-                self.stop()
-            case .cancelled:
-                onState("Disconnected")
-            default:
-                break
+        serialized {
+            stop()
+            let parameters = NWParameters.tcp
+            let connection = makeConnection?() ?? NWConnection(
+                host: NWEndpoint.Host(credentials.host),
+                port: NWEndpoint.Port(rawValue: port)!,
+                using: parameters
+            )
+            self.connection = connection
+            connection.stateUpdateHandler = { [weak self, weak connection] state in
+                guard let self,
+                      let connection,
+                      self.connection === connection else { return }
+                switch state {
+                case .setup:
+                    onState("Opening Wi-Fi connection")
+                case .preparing:
+                    onState("Preparing Wi-Fi connection")
+                case .waiting(let error):
+                    onState("Wi-Fi route unavailable: \(error.localizedDescription)")
+                case .ready:
+                    onState("Authenticating with monitor")
+                    guard self.connection === connection else { return }
+                    self.beginHandshake(connection: connection, onAudio: onAudio, onFrame: onFrame)
+                case .failed(let error):
+                    self.fail(error, connection: connection, onFrame: onFrame)
+                case .cancelled:
+                    onState("Disconnected")
+                default:
+                    break
+                }
             }
+            armTimeout(after: handshakeTimeout, error: .handshakeTimedOut, connection: connection, onFrame: onFrame)
+            connection.start(queue: queue)
         }
-        connection.start(queue: queue)
     }
 
+    /// Synchronously invalidates this session; callbacks cannot affect a replacement.
     public func stop() {
-        connection?.stateUpdateHandler = nil
-        connection?.cancel()
-        connection = nil
+        serialized {
+            timeout?.cancel()
+            timeout = nil
+            connection?.stateUpdateHandler = nil
+            connection?.cancel()
+            connection = nil
+        }
+    }
+
+    private func serialized(_ body: () -> Void) {
+        if DispatchQueue.getSpecific(key: queueKey) == true { body() }
+        else { queue.sync(execute: body) }
+    }
+
+    private func fail(_ error: Error, connection: NWConnection, onFrame: FrameHandler) {
+        guard self.connection === connection else { return }
+        // Invalidate before invoking client code, which may start a replacement.
+        stop()
+        onFrame(.failure(error))
+    }
+
+    private func armTimeout(
+        after interval: TimeInterval,
+        error: QuiiNativeVideoError,
+        connection: NWConnection,
+        onFrame: @escaping FrameHandler
+    ) {
+        timeout?.cancel()
+        deadline = .now() + interval
+        let expectedDeadline = deadline
+        let item = DispatchWorkItem { [weak self, weak connection] in
+            guard let self, let connection,
+                  self.connection === connection, self.deadline == expectedDeadline else { return }
+            self.fail(error, connection: connection, onFrame: onFrame)
+        }
+        timeout = item
+        queue.asyncAfter(deadline: deadline, execute: item)
     }
 
     private func beginHandshake(
@@ -375,8 +426,7 @@ public final class QuiiNativeVideoReceiver: @unchecked Sendable {
         connection.send(content: QuiiNativeVideoProtocol.setupRequest(), completion: .contentProcessed { [weak self] error in
             guard let self, self.connection === connection else { return }
             if let error {
-                onFrame(.failure(error))
-                self.stop()
+                self.fail(error, connection: connection, onFrame: onFrame)
                 return
             }
             self.receiveExactly(QuiiNativeVideoProtocol.headerSize, from: connection) { result in
@@ -392,15 +442,13 @@ public final class QuiiNativeVideoReceiver: @unchecked Sendable {
                     connection.send(content: play, completion: .contentProcessed { error in
                         guard self.connection === connection else { return }
                         if let error {
-                            onFrame(.failure(error))
-                            self.stop()
+                            self.fail(error, connection: connection, onFrame: onFrame)
                         } else {
                             self.receiveRecords(from: connection, onAudio: onAudio, onFrame: onFrame)
                         }
                     })
                 } catch {
-                    onFrame(.failure(error))
-                    self.stop()
+                    self.fail(error, connection: connection, onFrame: onFrame)
                 }
             }
         })
@@ -413,13 +461,7 @@ public final class QuiiNativeVideoReceiver: @unchecked Sendable {
     ) {
         do {
             let state = try VideoReceiveState(dataEncodeKey: credentials.dataEncodeKey)
-            let firstFrameTimeout = DispatchWorkItem { [weak self, weak connection, state] in
-                guard let self, let connection, self.connection === connection, !state.receivedFirstFrame else { return }
-                onFrame(.failure(QuiiNativeVideoError.streamTimedOut))
-                self.stop()
-            }
-            state.timeout = firstFrameTimeout
-            queue.asyncAfter(deadline: .now() + 5, execute: firstFrameTimeout)
+            armTimeout(after: firstFrameTimeout, error: .streamTimedOut, connection: connection, onFrame: onFrame)
             @Sendable func receiveNext() {
                 connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1_024) { [weak self, state] data, _, complete, error in
                     guard let self, self.connection === connection else { return }
@@ -427,11 +469,13 @@ public final class QuiiNativeVideoReceiver: @unchecked Sendable {
                         if let error { throw error }
                         if let data, !data.isEmpty {
                             for sample in try state.parser.appendMedia(data) {
+                                guard self.connection === connection else { return }
                                 switch sample {
                                 case .video(let frame):
-                                    if !state.receivedFirstFrame {
-                                        state.receivedFirstFrame = true
-                                        state.timeout?.cancel()
+                                    // Require SPS/PPS + IDR before accepting VCL progress.
+                                    // Actual decoding/rendering remains the caller's boundary.
+                                    if state.progress.observe(frame.annexB) {
+                                        self.armTimeout(after: self.frameIdleTimeout, error: .streamStalled, connection: connection, onFrame: onFrame)
                                     }
                                     onFrame(.success(frame))
                                 case .audio(let frame):
@@ -439,19 +483,17 @@ public final class QuiiNativeVideoReceiver: @unchecked Sendable {
                                 }
                             }
                         }
+                        guard self.connection === connection else { return }
                         if complete { throw QuiiNativeVideoError.connectionClosed }
                         receiveNext()
                     } catch {
-                        state.timeout?.cancel()
-                        onFrame(.failure(error))
-                        self.stop()
+                        self.fail(error, connection: connection, onFrame: onFrame)
                     }
                 }
             }
             receiveNext()
         } catch {
-            onFrame(.failure(error))
-            stop()
+            fail(error, connection: connection, onFrame: onFrame)
         }
     }
 
@@ -485,8 +527,7 @@ public final class QuiiNativeVideoReceiver: @unchecked Sendable {
 
 private final class VideoReceiveState: @unchecked Sendable {
     var parser: QuiiRecordParser
-    var receivedFirstFrame = false
-    var timeout: DispatchWorkItem?
+    var progress = QuiiVideoProgress()
 
     init(dataEncodeKey: Data) throws {
         parser = try QuiiRecordParser(dataEncodeKey: dataEncodeKey)

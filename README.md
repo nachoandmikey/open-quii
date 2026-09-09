@@ -52,10 +52,10 @@ data.
 
 ## Swift package
 
-After the `0.2.1` release, add this repository as a Swift Package dependency:
+Add this repository as a Swift Package dependency (use `0.2.2` after that release is published):
 
 ```swift
-.package(url: "https://github.com/nachoandmikey/open-quii.git", from: "0.2.1")
+.package(url: "https://github.com/nachoandmikey/open-quii.git", from: "0.2.2")
 ```
 
 The existing stable `0.1.0` tag remains available for consumers pinned to that
@@ -83,6 +83,30 @@ use an explicit credential case for that input shape.
 
 Construction of media/talk types does not connect, answer, activate a microphone,
 or open a door. The caller must initiate those operations explicitly.
+
+### Native video deadlines and ownership
+
+The receive-only client makes one attempt, never reconnects, and reports one terminal
+failure after cancelling that exact connection. It has monotonic deadlines for:
+
+- connection plus SETUP/PLAY completion: 8 seconds total, including waiting routes;
+- initial H.264 prerequisites after PLAY: 5 seconds;
+- established video progress: 8 seconds since the last qualifying VCL record.
+
+Video progress requires Annex-B SPS and PPS NAL payloads followed by an IDR payload;
+thereafter IDR/inter-frame VCL records renew the idle deadline. Arbitrary bytes,
+unconfigured video, empty NALs, metadata, audio, and control records do not count.
+This checks **structural H.264 prerequisites, not successful decoding or rendering**.
+The library still delivers video records to the caller before readiness so its
+renderer can accumulate configuration. Callers must keep separate startup and
+established **decoded/rendered-frame** deadlines; malformed codec data or a stuck
+renderer can coexist with continuing transport progress.
+
+Callbacks run on the receiver's serial queue and must not block it. `stop()`
+synchronously invalidates ownership; a terminal callback may explicitly start a
+replacement, and old timers/completions cannot stop it. The caller chooses bounded
+recovery according to the current foreground/call/wearable owner. A library timeout
+never answers, talks, unlocks, or starts a new session.
 
 ## Python core
 
