@@ -21,10 +21,10 @@ def test_manifest_and_packaging_share_one_canonical_core() -> None:
     assert manifest["config_flow"] is True
     assert manifest["iot_class"] == "local_polling"
     assert manifest["requirements"] == []
-    assert manifest["version"] == "0.2.1"
-    assert pyproject["project"]["version"] == "0.2.1"
-    assert '__version__ = "0.2.1"' in (_INTEGRATION / "core" / "__init__.py").read_text()
-    assert 'public static let version = "0.2.1"' in (
+    assert manifest["version"] == "0.2.2"
+    assert pyproject["project"]["version"] == "0.2.2"
+    assert '__version__ = "0.2.2"' in (_INTEGRATION / "core" / "__init__.py").read_text()
+    assert 'public static let version = "0.2.2"' in (
         _ROOT / "Sources" / "OpenQUII" / "OpenQUII.swift"
     ).read_text()
     assert pyproject["tool"]["setuptools"]["package-dir"]["openquii"] == (

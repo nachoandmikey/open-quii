@@ -38,4 +38,4 @@ jobs:
           uv venv "$temp/venv"
           uv pip install --python "$temp/venv/bin/python" "$wheel"
           cd "$temp"
-          "$temp/venv/bin/python" -c 'import openquii; assert openquii.__version__ == "0.2.1"'
+          "$temp/venv/bin/python" -c 'import openquii; assert openquii.__version__ == "0.2.2"'
